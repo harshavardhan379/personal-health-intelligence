@@ -1,0 +1,47 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Secrets and environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+
+# Data and storage (never commit health documents)
+storage/
+uploads/
+*.sqlite3
+pgdata/
+
+# Benchmark outputs
+benchmarks/**/output/
+metrics.json
+results.csv
+report.html
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Docker
+docker-compose.override.yml
