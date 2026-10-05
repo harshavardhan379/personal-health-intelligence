@@ -1,36 +1,31 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-app = FastAPI(title="Personal Health Intelligence API")
+from app.api.v1 import documents, health
+from app.core.config import settings
+from app.core.errors import (
+    http_error_handler,
+    unhandled_error_handler,
+    validation_error_handler,
+)
+from app.core.logging import configure_logging
 
-# Lets the HTML page (opened from a file or another port) call this API.
+configure_logging(settings.log_level)
+
+app = FastAPI(title=settings.app_name)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # demo only; restrict this later
+    allow_origins=settings.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-documents = []  # in-memory for now; the database comes in Step 6
+app.add_exception_handler(StarletteHTTPException, http_error_handler)
+app.add_exception_handler(RequestValidationError, validation_error_handler)
+app.add_exception_handler(Exception, unhandled_error_handler)
 
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-@app.post("/documents")
-async def upload_document(file: UploadFile = File(...)):
-    content = await file.read()
-    doc = {
-        "id": len(documents) + 1,
-        "filename": file.filename,
-        "size_bytes": len(content),
-    }
-    documents.append(doc)
-    return doc
-
-
-@app.get("/documents")
-def list_documents():
-    return documents
+app.include_router(health.router, prefix="/api/v1", tags=["health"])
+app.include_router(documents.router, prefix="/api/v1", tags=["documents"])
