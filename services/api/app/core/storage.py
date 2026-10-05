@@ -1,0 +1,67 @@
+"""Secure file storage for uploaded documents (YGH-49, YGH-117).
+
+Rules:
+- Never trust the client's filename for a path (path traversal).
+- Only the allowed MIME types/extensions get past validation.
+- Files are written under a per-user subdirectory so one user's storage can be
+  wiped independently (used by account/data deletion later).
+"""
+
+import os
+import uuid
+from pathlib import Path
+
+ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
+ALLOWED_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png"}
+MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB
+
+STORAGE_DIR = Path(os.environ.get("STORAGE_DIR", "storage"))
+
+
+class UploadValidationError(ValueError):
+    pass
+
+
+def validate_upload(filename: str, mime_type: str, size_bytes: int) -> None:
+    ext = Path(filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise UploadValidationError(f"Unsupported file extension: {ext or '(none)'}")
+    if mime_type not in ALLOWED_MIME_TYPES:
+        raise UploadValidationError(f"Unsupported MIME type: {mime_type}")
+    if size_bytes == 0:
+        raise UploadValidationError("Uploaded file is empty")
+    if size_bytes > MAX_FILE_SIZE_BYTES:
+        raise UploadValidationError(
+            f"File too large: {size_bytes} bytes (max {MAX_FILE_SIZE_BYTES})"
+        )
+
+
+def save_upload(user_id: uuid.UUID, filename: str, content: bytes) -> tuple[str, str]:
+    """Writes `content` to disk and returns (storage_path, stored_name).
+
+    storage_path is relative to STORAGE_DIR and is what gets saved on the Document row;
+    never derived from the user-supplied filename.
+    """
+    ext = Path(filename).suffix.lower()
+    stored_name = f"{uuid.uuid4().hex}{ext}"
+    user_dir = STORAGE_DIR / str(user_id)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    target = user_dir / stored_name
+    target.write_bytes(content)
+
+    storage_path = f"{user_id}/{stored_name}"
+    return storage_path, stored_name
+
+
+def delete_user_storage(user_id: uuid.UUID) -> None:
+    """Used by account/data deletion (M17)."""
+    import shutil
+
+    user_dir = STORAGE_DIR / str(user_id)
+    if user_dir.exists():
+        shutil.rmtree(user_dir)
+
+
+def read_upload(storage_path: str) -> bytes:
+    return (STORAGE_DIR / storage_path).read_bytes()

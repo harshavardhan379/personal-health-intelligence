@@ -1,0 +1,16 @@
+[tool.ruff]
+line-length = 100
+# Pinned to py39 (not py312, the Docker runtime target) so `ruff --fix` doesn't
+# rewrite Optional[X]/List[X] into 3.10+ `X | None` / list[X] syntax that would
+# break local dev on this machine's Python 3.9. Bump this once local dev is on 3.10+.
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# B008: FastAPI's Depends(...)-as-default is the documented, idiomatic pattern,
+# not a bug — calling it per-request is how FastAPI's DI is designed to work.
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
