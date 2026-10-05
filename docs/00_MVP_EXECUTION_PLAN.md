@@ -1911,3 +1911,48 @@ Production Engineering
 ```
 
 **MVP endpoint:** a user can upload fictional/synthetic health records, see a trustworthy longitudinal timeline, ask questions about their documented history, and receive answers grounded in identifiable evidence with appropriate uncertainty and safety handling.
+
+---
+
+# M11b — Model Fine-Tuning (added)
+
+Added to align the project with a fine-tuning/MLOps resume goal: fine-tune an open-source LLM with LoRA on the
+PersonalHealthBench synthetic QA dataset (M14), track experiments and model versions in PostgreSQL, and serve
+the fine-tuned model via a Dockerized FastAPI service on a cloud GPU (AWS). It sits between M11 (AI Assistant)
+and M12 (Evidence Verification) in Linear, and extends the AI provider interface so `services/reasoning` can
+target either a hosted LLM or this self-hosted fine-tuned model.
+
+Stack addition: PyTorch, Hugging Face `transformers`/`peft`, cloud GPU (AWS EC2/SageMaker).
+
+## YGH-127 — Define fine-tuning dataset format
+Convert the M14 synthetic QA dataset into a LoRA instruction-tuning JSONL format. Split by synthetic patient to avoid leakage.
+
+## YGH-128 — Set up cloud GPU training environment
+Provision an AWS GPU instance, install the training stack, document cost and shutdown procedure.
+
+## YGH-137 — Select base model for fine-tuning
+Choose an open-source base model (e.g. Llama 3 8B / Mistral 7B) on license, size and baseline quality.
+
+## YGH-129 — Implement LoRA fine-tuning script
+`peft`-based LoRA training script, parameterized, producing saved adapter checkpoints.
+
+## YGH-130 — Implement experiment tracking tables in PostgreSQL
+`ExperimentRun` and `ModelVersion` tables and migrations.
+
+## YGH-131 — Build model registry and versioning API
+Endpoints to list runs, register a model version, and mark the active one.
+
+## YGH-132 — Extend AI provider interface to support self-hosted fine-tuned model
+Provider abstraction can target hosted LLM or self-hosted fine-tuned endpoint via config.
+
+## YGH-133 — Build inference serving API for fine-tuned model
+FastAPI service loading the active adapter, with logging (no raw health content) and latency metrics.
+
+## YGH-134 — Dockerize training and inference services
+Separate Dockerfiles for training (GPU) and inference; compose integration where feasible.
+
+## YGH-135 — Deploy fine-tuned model inference on AWS
+Deploy the inference API to AWS with cost controls (auto-stop/scale-to-zero).
+
+## YGH-136 — Evaluate fine-tuned model against baselines
+Run through the M14 benchmark runner alongside existing baselines; add to the benchmark report.
