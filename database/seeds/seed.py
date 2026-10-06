@@ -5,8 +5,14 @@ Run against a live Postgres (after `docker compose up` and `alembic upgrade head
     python database/seeds/seed.py
 """
 
+import os
+import sys
 import uuid
 from datetime import date, datetime, timedelta
+
+# Run directly with `python database/seeds/seed.py` (not as a module), so the
+# repo root needs to be added to sys.path by hand — matches database/migrations/env.py.
+sys.path.insert(0, os.getcwd())
 
 from packages.schemas.db import SessionLocal
 from packages.schemas.models import Document, HealthEvent, Provenance, User
