@@ -3,7 +3,16 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from services.api.app.api.v1 import auth, documents, health, review, search, timeline, trends
+from services.api.app.api.v1 import (
+    assistant,
+    auth,
+    documents,
+    health,
+    review,
+    search,
+    timeline,
+    trends,
+)
 from services.api.app.core.config import settings
 from services.api.app.core.errors import (
     http_error_handler,
@@ -34,3 +43,4 @@ app.include_router(review.router, prefix="/api/v1")
 app.include_router(timeline.router, prefix="/api/v1")
 app.include_router(trends.router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")
+app.include_router(assistant.router, prefix="/api/v1")
