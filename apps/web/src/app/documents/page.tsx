@@ -47,7 +47,10 @@ function DocumentsPageInner() {
   async function onUpload(e: React.FormEvent) {
     e.preventDefault();
     const file = fileInput.current?.files?.[0];
-    if (!file) return;
+    if (!file) {
+      setError("Please choose a file first.");
+      return;
+    }
 
     setError(null);
     setUploading(true);
