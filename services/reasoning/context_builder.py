@@ -21,6 +21,7 @@ from packages.schemas.evidence import Evidence
 from packages.schemas.intent import QueryIntent
 from services.reasoning.intent_classifier import classify_intent
 from services.retrieval.hybrid import hybrid_search
+from services.retrieval.temporal import search_temporal
 
 
 @dataclass
@@ -44,5 +45,14 @@ class AssistantContext:
 
 def build_context(db: Session, user_id: uuid.UUID, question: str) -> AssistantContext:
     intent = classify_intent(question)
-    evidence = hybrid_search(db, user_id, question)
+
+    # TEMPORAL questions ("what changed", "recently") need evidence ordered by
+    # date with dates visible — relevance-ranked hybrid_search can't support
+    # "what changed" reasoning (YGH-85). Every other intent still uses the
+    # general-purpose relevance search.
+    if intent == "TEMPORAL":
+        evidence = search_temporal(db, user_id)
+    else:
+        evidence = hybrid_search(db, user_id, question)
+
     return AssistantContext(question=question, intent=intent, evidence=evidence)
