@@ -21,3 +21,9 @@ def test_retrieval_default():
 
 def test_unknown_for_empty():
     assert classify_intent("") == "UNKNOWN"
+
+def test_historical_first_documented():
+    assert classify_intent("When was Metformin first documented?") == "TEMPORAL"
+
+def test_historical_when_did_i_start():
+    assert classify_intent("When did I start taking this medication?") == "TEMPORAL"

@@ -13,7 +13,14 @@ _TREND_KEYWORDS = [
     "trend", "improving", "worsening", "getting better", "getting worse",
     "increasing", "decreasing",
 ]
-_TEMPORAL_KEYWORDS = ["changed", "change", "since", "last time", "recently", "latest", "new"]
+_TEMPORAL_KEYWORDS = [
+    "changed", "change", "since", "last time", "recently", "latest", "new",
+    # YGH-87 historical phrasing — "first documented"/"when did I start" are
+    # handled by the same date-ordered evidence as "what changed recently":
+    # both need explicit dates, just read in different directions.
+    "first documented", "first time", "when did i start", "when was",
+    "initially", "started taking", "history of",
+]
 _SUMMARY_KEYWORDS = ["summarize", "summary", "overview", "overall"]
 _DOCUMENT_KEYWORDS = ["this report", "this document", "this result", "explain this"]
 

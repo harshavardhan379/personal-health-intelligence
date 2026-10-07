@@ -50,13 +50,19 @@ class OpenAIProvider:
 
     def generate(self, messages: list[dict]) -> str:
         try:
-            # temperature=0: we need the model to reliably follow a strict JSON
-            # schema (packages/schemas/answer.py), not be creative. Found via
-            # YGH-84 testing — the default sampling temperature produced
-            # malformed/doubly-nested JSON on some calls, caught by the parser's
-            # fallback but worth eliminating at the source.
+            # temperature=0: reliable schema-following, not creativity.
+            # response_format=json_object: constrained decoding — the API
+            # guarantees syntactically valid JSON, rather than us catching
+            # malformed JSON after the fact. Found necessary via YGH-86 testing:
+            # a more complex nested schema (multiple claims, multiple citations
+            # each) produced genuinely broken JSON (not just trailing garbage)
+            # that even a lenient parser couldn't recover. OpenAI and xAI's
+            # Grok API (OpenAI-compatible) both support this parameter.
             response = self._client.chat.completions.create(
-                model=self.model, messages=messages, temperature=0
+                model=self.model,
+                messages=messages,
+                temperature=0,
+                response_format={"type": "json_object"},
             )
         except Exception as exc:  # noqa: BLE001 — any SDK/network failure becomes one clear error
             raise LLMProviderError(f"{self.name} request failed: {exc}") from exc
@@ -91,6 +97,7 @@ class OllamaProvider:
                     "model": self.model,
                     "messages": messages,
                     "stream": False,
+                    "format": "json",  # constrained decoding — see OpenAIProvider.generate
                     "options": {"temperature": 0},
                 },
                 timeout=settings.llm_timeout_seconds,

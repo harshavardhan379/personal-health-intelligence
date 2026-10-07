@@ -12,4 +12,4 @@ class Evidence(BaseModel):
     text: str
     event_ids: list[str] = []
     relevance_score: float
-    source: str  # "structured" | "semantic" | "temporal"
+    source: str  # "structured" | "semantic" | "temporal" | "trend" | "comparison" | "historical"

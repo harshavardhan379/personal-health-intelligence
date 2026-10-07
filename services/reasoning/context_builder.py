@@ -20,8 +20,10 @@ from sqlalchemy.orm import Session
 from packages.schemas.evidence import Evidence
 from packages.schemas.intent import QueryIntent
 from services.reasoning.intent_classifier import classify_intent
+from services.retrieval.comparison import search_comparison
 from services.retrieval.hybrid import hybrid_search
 from services.retrieval.temporal import search_temporal
+from services.retrieval.trend_evidence import search_trend
 
 
 @dataclass
@@ -46,12 +48,15 @@ class AssistantContext:
 def build_context(db: Session, user_id: uuid.UUID, question: str) -> AssistantContext:
     intent = classify_intent(question)
 
-    # TEMPORAL questions ("what changed", "recently") need evidence ordered by
-    # date with dates visible — relevance-ranked hybrid_search can't support
-    # "what changed" reasoning (YGH-85). Every other intent still uses the
-    # general-purpose relevance search.
+    # Each intent that needs structurally different evidence gets its own
+    # retrieval path (YGH-85, YGH-86, trend fix); everything else falls back
+    # to the general-purpose relevance search.
     if intent == "TEMPORAL":
         evidence = search_temporal(db, user_id)
+    elif intent == "TREND":
+        evidence = search_trend(db, user_id)
+    elif intent == "COMPARISON":
+        evidence = search_comparison(db, user_id)
     else:
         evidence = hybrid_search(db, user_id, question)
 
