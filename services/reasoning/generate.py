@@ -1,4 +1,4 @@
-"""Structured answer generation (YGH-83).
+"""Structured answer generation (YGH-83) with per-claim evidence citation (YGH-84).
 
 build_messages() turns an AssistantContext into a proper role-structured chat
 prompt (system + user) — see the discussion in context_builder.py for why this
@@ -12,7 +12,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from packages.schemas.answer import Answer
+from packages.schemas.answer import Answer, Claim
 from services.reasoning.context_builder import AssistantContext, build_context
 from services.reasoning.providers import LLMProviderError, get_llm_provider
 
@@ -25,9 +25,11 @@ Rules:
 - Never diagnose a condition, prescribe or recommend a dose, or direct treatment.
 - Use only the evidence given. If it doesn't answer the question, say so plainly \
 instead of guessing.
+- Every factual claim MUST cite the evidence number(s) (e.g. [1]) from the \
+Evidence list that support it. Never state a claim with no citation.
 - Respond with ONLY a JSON object, no other text, in exactly this shape:
-{"answer": "<your answer in plain language>", \
-"claims": ["<short factual claim 1>", "<short factual claim 2>"], \
+{"answer": "<your answer in plain language, with [n] citations inline>", \
+"claims": [{"text": "<short factual claim>", "citations": [1]}], \
 "uncertainty": "<what is uncertain or missing, or null if nothing>"}
 """
 
@@ -45,7 +47,44 @@ def build_messages(context: AssistantContext) -> list:
     ]
 
 
-def _parse_model_output(raw: str, intent: str, evidence_ids: list) -> Answer:
+def _parse_claims(claims_raw: list, context: AssistantContext) -> tuple:
+    """Returns (claims, cited_evidence_ids, uncited_count). Validates citation
+    indices against the actual evidence list — an out-of-range or missing
+    citation is dropped, not trusted (YGH-84: "require... reference supporting
+    evidence", not "trust the model's claim that it did").
+    """
+    n_evidence = len(context.evidence)
+    claims: list[Claim] = []
+    cited_evidence_ids: set = set()
+    uncited_count = 0
+
+    for raw_claim in claims_raw:
+        if isinstance(raw_claim, str):
+            # Model ignored the citation format entirely — keep the claim visible
+            # (don't silently drop user-facing content) but it's uncited.
+            claims.append(Claim(text=raw_claim, citation_indices=[]))
+            uncited_count += 1
+            continue
+
+        text = str(raw_claim.get("text", "")).strip()
+        if not text:
+            continue
+
+        raw_indices = raw_claim.get("citations") or []
+        valid_indices = [
+            i for i in raw_indices if isinstance(i, int) and 1 <= i <= n_evidence
+        ]
+        claims.append(Claim(text=text, citation_indices=valid_indices))
+
+        if not valid_indices:
+            uncited_count += 1
+        for i in valid_indices:
+            cited_evidence_ids.update(context.evidence[i - 1].event_ids)
+
+    return claims, cited_evidence_ids, uncited_count
+
+
+def _parse_model_output(raw: str, context: AssistantContext) -> Answer:
     """Models (especially small local ones) don't always return clean JSON.
     Parse defensively; never crash the user-facing response over a formatting
     slip — degrade to treating the raw text as the answer instead.
@@ -59,23 +98,40 @@ def _parse_model_output(raw: str, intent: str, evidence_ids: list) -> Answer:
         text = text.strip()
 
     try:
-        parsed = json.loads(text)
-        return Answer(
-            answer=parsed.get("answer", "").strip() or "(empty response)",
-            claims=parsed.get("claims") or [],
-            evidence_ids=evidence_ids,
-            uncertainty=parsed.get("uncertainty"),
-            intent=intent,
-        )
-    except (json.JSONDecodeError, AttributeError):
+        # raw_decode (not json.loads) parses the first valid JSON value and
+        # ignores anything trailing after it — local models sometimes emit one
+        # valid JSON object plus stray trailing characters (found via live
+        # testing: llama3.2:3b consistently appended an extra "}"), which
+        # json.loads rejects outright as "Extra data" but raw_decode tolerates.
+        parsed, _ = json.JSONDecoder().raw_decode(text)
+    except json.JSONDecodeError:
         logger.warning("Model output was not valid JSON; falling back to raw text")
         return Answer(
             answer=raw.strip(),
             claims=[],
-            evidence_ids=evidence_ids,
+            evidence_ids=[],
             uncertainty="Model response was not in the expected format.",
-            intent=intent,
+            intent=context.intent,
         )
+
+    claims, cited_evidence_ids, uncited_count = _parse_claims(
+        parsed.get("claims") or [], context
+    )
+
+    uncertainty = parsed.get("uncertainty")
+    if uncited_count and not uncertainty:
+        uncertainty = (
+            f"{uncited_count} claim(s) in this answer were not tied to a specific "
+            f"evidence citation."
+        )
+
+    return Answer(
+        answer=parsed.get("answer", "").strip() or "(empty response)",
+        claims=claims,
+        evidence_ids=sorted(cited_evidence_ids),
+        uncertainty=uncertainty,
+        intent=context.intent,
+    )
 
 
 def generate_answer(db: Session, user_id: uuid.UUID, question: str) -> Answer:
@@ -105,5 +161,4 @@ def generate_answer(db: Session, user_id: uuid.UUID, question: str) -> Answer:
             intent=context.intent,
         )
 
-    evidence_ids = [eid for e in context.evidence for eid in e.event_ids]
-    return _parse_model_output(raw, context.intent, evidence_ids)
+    return _parse_model_output(raw, context)

@@ -50,7 +50,14 @@ class OpenAIProvider:
 
     def generate(self, messages: list[dict]) -> str:
         try:
-            response = self._client.chat.completions.create(model=self.model, messages=messages)
+            # temperature=0: we need the model to reliably follow a strict JSON
+            # schema (packages/schemas/answer.py), not be creative. Found via
+            # YGH-84 testing — the default sampling temperature produced
+            # malformed/doubly-nested JSON on some calls, caught by the parser's
+            # fallback but worth eliminating at the source.
+            response = self._client.chat.completions.create(
+                model=self.model, messages=messages, temperature=0
+            )
         except Exception as exc:  # noqa: BLE001 — any SDK/network failure becomes one clear error
             raise LLMProviderError(f"{self.name} request failed: {exc}") from exc
 
@@ -80,7 +87,12 @@ class OllamaProvider:
         try:
             response = httpx.post(
                 f"{self.base_url}/api/chat",
-                json={"model": self.model, "messages": messages, "stream": False},
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "stream": False,
+                    "options": {"temperature": 0},
+                },
                 timeout=settings.llm_timeout_seconds,
             )
             response.raise_for_status()
