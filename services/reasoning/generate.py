@@ -135,6 +135,18 @@ def _parse_model_output(raw: str, context: AssistantContext) -> Answer:
 
 
 def generate_answer(db: Session, user_id: uuid.UUID, question: str) -> Answer:
+    answer, _context = generate_answer_with_context(db, user_id, question)
+    return answer
+
+
+def generate_answer_with_context(
+    db: Session, user_id: uuid.UUID, question: str
+) -> tuple:
+    """Same as generate_answer, but also returns the AssistantContext used to
+    generate it — needed by services/verification/verify.py (M12), which must
+    check the answer against the EXACT SAME evidence it was generated from,
+    not a freshly re-retrieved (and possibly different) evidence set.
+    """
     context = build_context(db, user_id, question)
 
     if not context.evidence:
@@ -144,7 +156,7 @@ def generate_answer(db: Session, user_id: uuid.UUID, question: str) -> Answer:
             evidence_ids=[],
             uncertainty="No relevant evidence was found.",
             intent=context.intent,
-        )
+        ), context
 
     messages = build_messages(context)
     provider = get_llm_provider()
@@ -159,6 +171,6 @@ def generate_answer(db: Session, user_id: uuid.UUID, question: str) -> Answer:
             evidence_ids=[],
             uncertainty=f"Provider error: {exc}",
             intent=context.intent,
-        )
+        ), context
 
-    return _parse_model_output(raw, context)
+    return _parse_model_output(raw, context), context
