@@ -110,3 +110,47 @@ def test_verify_answer_gate_flags_contradiction_in_uncertainty():
     verified = verify_answer(answer, _evidence("HbA1c: 7.2 % (ref 4.0-5.6)"))
     assert verified.fully_verified is False
     assert "contradicted" in verified.uncertainty.lower()
+
+
+def test_sentence_ending_period_does_not_break_number_match():
+    """Found via live testing: the number regex captured the trailing period
+    ("2026-04-10." -> "10."), so a TRUE claim was labeled CONTRADICTED."""
+    claim = Claim(
+        text="The patient took Metformin 500mg on 2026-01-10 and 1000mg on 2026-04-10.",
+        citation_indices=[1, 2],
+    )
+    evidence = _evidence("Metformin 500mg twice daily 2026-01-10") + _evidence(
+        "Metformin 1000mg twice daily 2026-04-10"
+    )
+    assert match_claim_to_evidence(claim, evidence).label == "SUPPORTED"
+
+
+def test_honest_absence_claim_is_supported():
+    """Found via live testing: "cholesterol not reported" (true) was flagged
+    UNSUPPORTED, penalizing a correct abstention."""
+    claim = Claim(
+        text="Cholesterol level is not reported in the provided evidence.",
+        citation_indices=[1],
+    )
+    evidence = _evidence("HbA1c: 7.2 % (ref 4.0-5.6) 2026-01-10")
+    assert match_claim_to_evidence(claim, evidence).label == "SUPPORTED"
+
+
+def test_absence_claim_with_no_citation_is_supported_not_insufficient():
+    claim = Claim(text="No cholesterol results are documented.", citation_indices=[])
+    evidence = _evidence("HbA1c: 7.2 % (ref 4.0-5.6) 2026-01-10")
+    assert match_claim_to_evidence(claim, evidence).label == "SUPPORTED"
+
+
+def test_false_absence_claim_is_contradicted():
+    """Saying Metformin is not documented when the evidence documents it must
+    still be caught, not waved through as an 'honest abstention'."""
+    claim = Claim(text="Metformin is not documented in the records.", citation_indices=[])
+    evidence = _evidence("Metformin 500mg twice daily 2026-01-10")
+    assert match_claim_to_evidence(claim, evidence).label == "CONTRADICTED"
+
+
+def test_ordinary_claim_containing_not_is_not_treated_as_absence():
+    claim = Claim(text="HbA1c did not change from 7.2%", citation_indices=[1])
+    evidence = _evidence("HbA1c: 6.5 % (ref 4.0-5.6) 2026-04-10")
+    assert match_claim_to_evidence(claim, evidence).label == "CONTRADICTED"

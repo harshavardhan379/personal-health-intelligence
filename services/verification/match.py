@@ -21,7 +21,11 @@ from packages.schemas.answer import Claim
 from packages.schemas.evidence import Evidence
 from packages.schemas.verification import ClaimVerification
 
-_NUMBER_RE = re.compile(r"\d+\.?\d*")
+# A decimal point only counts when digits follow it. The older pattern
+# `\d+\.?\d*` swallowed a sentence-ending period ("...on 2026-04-10." ->
+# "10."), so a true claim failed to match its own evidence (found via live
+# testing of "What changed in my recent reports?").
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 _STOPWORDS = {
     "a", "an", "the", "is", "are", "was", "were", "my", "me", "i", "this",
     "that", "has", "have", "had", "it", "of", "for", "to", "in", "on", "at",
@@ -35,6 +39,27 @@ _STOPWORDS = {
     "takes", "taking", "documented", "reported",
 }
 _WORD_RE = re.compile(r"[a-z0-9]+")
+
+# A claim that says something is NOT in the records ("Cholesterol level is not
+# reported in the provided evidence"). Needs a negation word AND a
+# records/reporting word, so ordinary claims containing "not" (e.g. "HbA1c did
+# not change") are not mistaken for absence claims.
+_ABSENCE_RE = re.compile(
+    r"\b(?:no|not|none|nothing|without|insufficient)\b.*"
+    r"\b(?:reported|documented|mentioned|found|available|recorded|provided|listed"
+    r"|evidence|information|data|records?|mentions?)\b",
+    re.IGNORECASE,
+)
+# Words that make up the "is not in the records" phrasing itself. Whatever is
+# left in the claim is the topic that is being declared absent.
+_ABSENCE_FILLER = {
+    "not", "none", "nothing", "without", "insufficient", "there", "your",
+    "about", "regarding", "any", "reported", "documented", "mentioned", "found",
+    "available", "recorded", "provided", "listed", "evidence", "information",
+    "data", "record", "records", "mention", "mentions", "present", "confirmed",
+    "medical", "health", "current", "currently", "exist", "exists", "contain",
+    "contains", "include", "includes", "included",
+}
 
 # Below this fraction of claim keywords found in the evidence text, there's
 # not enough topical overlap to call it SUPPORTED even if numbers happen to
@@ -51,9 +76,42 @@ def _numbers(text: str) -> set:
     return set(_NUMBER_RE.findall(text))
 
 
+def _match_absence_claim(claim: Claim, all_evidence: list[Evidence]) -> ClaimVerification:
+    """Verifies "X is not in the records". It is true when the topic is not in the
+    retrieved evidence, and contradicted when every topic word is. Checked
+    against ALL evidence, not just the cited items: absence is a statement about
+    the whole retrieved set, and an honest abstention often cites nothing.
+    """
+    topic = _keywords(claim.text) - _ABSENCE_FILLER
+    evidence_keywords = _keywords(" ".join(e.text for e in all_evidence))
+
+    if topic and topic.issubset(evidence_keywords):
+        return ClaimVerification(
+            claim_text=claim.text,
+            label="CONTRADICTED",
+            citation_indices=claim.citation_indices,
+            explanation=(
+                "Claim says this is not documented, but the retrieved evidence "
+                "does mention it."
+            ),
+        )
+    return ClaimVerification(
+        claim_text=claim.text,
+        label="SUPPORTED",
+        citation_indices=claim.citation_indices,
+        explanation=(
+            "Claim states the topic is absent, and it does not appear in the "
+            "retrieved evidence."
+        ),
+    )
+
+
 def match_claim_to_evidence(
     claim: Claim, all_evidence: list[Evidence]
 ) -> ClaimVerification:
+    if _ABSENCE_RE.search(claim.text):
+        return _match_absence_claim(claim, all_evidence)
+
     cited = [
         all_evidence[i - 1]
         for i in claim.citation_indices

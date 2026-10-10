@@ -27,8 +27,8 @@ LLM calls, real bugs found and fixed through live testing, not just "it imports.
 
 - **Repo:** `harshavardhan379/personal-health-intelligence` on GitHub, branch `main`.
 - **Linear:** team `YGH`, project "Personal Health Intelligence App" — https://linear.app/harshavardhan-p/team/YGH
-- **Milestones M0 (partially), M1 through M11: Done.** M12 onward: not started.
-- **Latest commit:** `eb7c1d1`. Run `git log --oneline | cat` to get the real current state — this
+- **Milestones M0 (partially), M1 through M12: Done.** M13 (Safety Layer) is next, not started.
+- **Latest commit:** see `git log` (M12 landed as `2c5447f`, followed by a live-testing fix commit). Run `git log --oneline | cat` to get the real current state — this
   number is stale the moment new work lands.
 - **126 original Linear issues + 11 M11b (fine-tuning) issues added mid-project = 137 total.**
   Roughly 50 are Done as of this writing.
@@ -215,6 +215,25 @@ was watched working, not assumed.
     so temporal, comparison, and trend evidence all describe the same fact identically — was
     duplicated inline before, now written once.
 
+### M12 — Evidence Verification (`2c5447f`, then a live-testing fix commit)
+`services/verification/{match,verify}.py`: every claim in an `Answer` is checked against the evidence
+it cited (SUPPORTED / UNSUPPORTED / CONTRADICTED / INSUFFICIENT), deliberately without an LLM call.
+`generate_verified_answer()` is what `POST /assistant/ask` now calls; non-SUPPORTED claims are
+surfaced in `uncertainty` and `claim_verifications`. YGH-52 to YGH-57 are Done.
+
+**Found by running it live afterwards (unit tests had passed), fixed in the follow-up commit:**
+- The number regex `\d+\.?\d*` captured a sentence-ending period (`2026-04-10.` became `10.`), so a
+  TRUE claim was labeled CONTRADICTED. Now `\d+(?:\.\d+)?`.
+- A correct "X is not reported in the evidence" claim was labeled UNSUPPORTED and made
+  `fully_verified` false. Absence claims are now verified against the whole retrieved evidence set:
+  SUPPORTED if the topic is absent, CONTRADICTED if the evidence does mention it.
+- Small models returned `"null"`/`"None"` as strings for `uncertainty`; now normalized to null.
+- `llm_timeout_seconds` raised 30 to 90, because the first call after a cold start timed out.
+
+**Known limitation (not fixed):** a correct claim that states values from two records but cites only
+one of them (e.g. "dose changed from 500mg to 1000mg" citing only the 1000mg record) can still be
+labeled CONTRADICTED. Checking numbers against all evidence would weaken the check, so it was left.
+
 ### Session continuity
 `eb7c1d1` — this file was first created, then is being rewritten right now into the version
 you're reading, to be exhaustive rather than a summary.
@@ -240,7 +259,7 @@ A separate seeded demo account exists if `database/seeds/seed.py` has been run:
 ```bash
 cd personal-health-intelligence
 
-# 1. Database
+# 1. Database (host port 5433, not 5432: a native Windows Postgres service often owns 5432)
 docker compose up -d postgres
 docker compose ps   # wait for "healthy"
 
@@ -251,7 +270,7 @@ ollama pull llama3.2:3b           # if not already pulled
 # 3. Backend
 python3 -m venv .venv && source .venv/bin/activate   # first time only
 pip install -r requirements.txt                        # first time only
-export DATABASE_URL="postgresql+psycopg://phi:phi_dev_password@localhost:5432/phi"
+export DATABASE_URL="postgresql+psycopg://phi:phi_dev_password@localhost:5433/phi"
 alembic upgrade head              # first time / fresh DB only
 uvicorn services.api.main:app --reload
 
@@ -263,6 +282,13 @@ npm run dev
 # 5. Open
 # http://localhost:3000/login   (realtest@example.com / testpass123)
 ```
+
+**Windows:** the venv activates with `.venv\Scripts\Activate.ps1` (PowerShell) or
+`.venv\Scripts\activate.bat` (cmd), not `bin/activate`. In cmd, set the variable with
+`set DATABASE_URL=...` (no quotes). `uvloop` was removed from `requirements.txt` (Linux/macOS only;
+uvicorn falls back to asyncio). If `pip` hangs, a user pip config may point at an unreachable extra
+index; bypass with `PIP_CONFIG_FILE=NUL`. The Docker volume can be lost if Docker Desktop is reset,
+which empties the database: re-run `alembic upgrade head`, register again, re-upload, re-confirm.
 
 **LLM provider:** defaults to `ollama`, zero config needed. To use OpenAI or Grok instead, set in
 `services/api/.env` (gitignored — copy from `.env.example`):
@@ -293,7 +319,7 @@ Or use `http://localhost:8000/docs` — click **Authorize**, paste the raw token
 - **No frontend page for the assistant.** `apps/web/src/app/assistant/page.tsx` and
   `settings/page.tsx` are empty placeholders (`PagePlaceholder` component). The assistant is
   fully functional via the API; wiring a real chat UI is M15 (Frontend Productization).
-- **No automated integration tests.** Only 31 pure-function unit tests exist
+- **No automated integration tests.** Only 47 pure-function unit tests exist
   (`tests/unit/`, zero DB/network dependency, run in ~0.2s). Every multi-service flow (upload
   pipeline, the AI assistant end to end, cross-user isolation) was verified **manually, live**,
   and the result documented in each Linear issue's comment — formalizing these into
@@ -301,8 +327,7 @@ Or use `http://localhost:8000/docs` — click **Authorize**, paste the raw token
 - **No request correlation IDs, no AI call tracing, no log aggregation.** Structured JSON logging
   exists (`app/core/logging.py`); cross-request correlation doesn't. `AITrace` table exists in
   the schema with zero writers — reserved for M16.
-- **No evidence verification yet.** `Answer.claims` carry citations, but nothing checks whether a
-  claim actually matches what its cited evidence says — that's M12, next (see §8).
+- **Evidence verification is built (M12)** but is rule-based, not an LLM: see the limitation noted in §3.
 - **No safety classifier yet.** The system prompt in `generate.py` says "never diagnose, prescribe,
   or direct treatment," but nothing *enforces* that if the model ignores the instruction — that's
   M13.
@@ -333,7 +358,7 @@ real quality there to benchmark against.
 In brief-mandated order (see `docs/00_MVP_EXECUTION_PLAN.md` §18 "Priority rule if time is
 limited" for why this order, not an arbitrary choice):
 
-### M12 — Evidence Verification (next, not started)
+### M12 — Evidence Verification (DONE, kept for reference)
 Takes M11's `Answer.claims` (each already carrying `citation_indices` from YGH-84) and actually
 checks them, instead of trusting the model's self-report.
 - **YGH-52** Claim extraction — likely already satisfied by YGH-84's `Claim` structure; confirm
@@ -423,7 +448,7 @@ is how a project like this quietly rots into something that looks done but isn't
    far — the `passlib`/`bcrypt` incompatibility, the `seed.py` import error, the Swagger auth
    mismatch, the structured-search substring bug, three separate JSON-formatting failures, the
    TREND hallucination — was found by actually running the code against live Postgres and a live
-   LLM, not by unit tests or by reading the code.** Unit tests are necessary (31 exist, all pure
+   LLM, not by unit tests or by reading the code.** Unit tests are necessary (47 exist, all pure
    functions, all passing) but they are not sufficient on their own for anything that touches the
    database, the network, or a model. If Docker/Ollama aren't available in a given environment,
    say so explicitly and name exactly what couldn't be verified — never claim "done" for something
@@ -481,13 +506,13 @@ Do this, in order:
 3. Run the launch sequence in §5. Confirm the assistant actually answers a question correctly
    against the `realtest@example.com` account (§4) before writing any new code — that's your own
    "is the stack actually alive" check, same discipline as §9's rule 2.
-4. Pick up at M12 (§8) unless told otherwise, following the method in §9 exactly — it's not
+4. Pick up at M13 (§8) unless told otherwise, following the method in §9 exactly — it's not
    optional stylistic preference, it's what kept this project's "Done" label meaning something
    real for 11 straight milestones.
 5. Update this file (or write a new dated one) at the end of whatever milestone you complete.
 
 ---
 
-*Last fully rewritten after M11 completion, commit `eb7c1d1`+. An out-of-date handover is worse
+*Last updated after M12 completion and its live-testing fixes. An out-of-date handover is worse
 than none — keep it honest or delete the stale parts rather than let them mislead the next
 session.*

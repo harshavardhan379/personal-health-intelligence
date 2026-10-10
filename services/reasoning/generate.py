@@ -84,6 +84,21 @@ def _parse_claims(claims_raw: list, context: AssistantContext) -> tuple:
     return claims, cited_evidence_ids, uncited_count
 
 
+_EMPTY_UNCERTAINTY = {"", "null", "none", "n/a", "na", "nil"}
+
+
+def _clean_uncertainty(value):
+    """Small models often write "null" or "None" as a string instead of JSON null
+    (found via live testing). Treat those as "nothing uncertain", not as text to
+    show the user."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text.lower().rstrip(".") in _EMPTY_UNCERTAINTY:
+        return None
+    return text
+
+
 def _parse_model_output(raw: str, context: AssistantContext) -> Answer:
     """Models (especially small local ones) don't always return clean JSON.
     Parse defensively; never crash the user-facing response over a formatting
@@ -118,7 +133,7 @@ def _parse_model_output(raw: str, context: AssistantContext) -> Answer:
         parsed.get("claims") or [], context
     )
 
-    uncertainty = parsed.get("uncertainty")
+    uncertainty = _clean_uncertainty(parsed.get("uncertainty"))
     if uncited_count and not uncertainty:
         uncertainty = (
             f"{uncited_count} claim(s) in this answer were not tied to a specific "

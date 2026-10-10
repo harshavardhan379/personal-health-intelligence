@@ -63,7 +63,7 @@ a later milestone.
                                                             ┌──────────────────────────────┐
                                                             │          PostgreSQL 16              │
                                                             │       + pgvector extension           │
-                                                            │  Docker container, :5432              │
+                                                            │  Docker container, host :5433         │
                                                             │  Persistent volume: pgdata             │
                                                             └──────────────────────────────┘
 ```

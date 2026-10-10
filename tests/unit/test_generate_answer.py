@@ -39,3 +39,12 @@ def test_no_evidence_never_calls_the_llm_provider():
     ):
         generate_answer(db=None, user_id=None, question="...")
         mock_get_provider.assert_not_called()
+
+
+def test_string_null_uncertainty_is_treated_as_no_uncertainty():
+    """Found via live testing: the small model returned "null"/"None" as text."""
+    from services.reasoning.generate import _clean_uncertainty
+
+    for junk in ("null", "None", "none.", "N/A", "  ", None):
+        assert _clean_uncertainty(junk) is None
+    assert _clean_uncertainty("Only one report available.") == "Only one report available."

@@ -12,7 +12,7 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql+psycopg://phi:phi_dev_password@localhost:5432/phi",
+    "postgresql+psycopg://phi:phi_dev_password@localhost:5433/phi",
 )
 
 # pool_pre_ping avoids handing out dead connections after the DB restarts.

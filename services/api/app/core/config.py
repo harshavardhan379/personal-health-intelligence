@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # LLM provider selection (YGH-83). "openai" | "grok" | "ollama".
     llm_provider: str = "ollama"
-    llm_timeout_seconds: float = 30.0
+    llm_timeout_seconds: float = 90.0  # a cold local model load can exceed 30s
 
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
