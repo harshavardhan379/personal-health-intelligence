@@ -28,3 +28,6 @@ class VerifiedAnswer(BaseModel):
     intent: str
     # True only if every claim is SUPPORTED — the gate YGH-56 will act on.
     fully_verified: bool
+    # How the safety layer (M13) routed the question; see packages/schemas/safety.py.
+    safety_category: Optional[str] = None
+    safety_action: Optional[str] = None

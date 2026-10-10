@@ -27,7 +27,7 @@ LLM calls, real bugs found and fixed through live testing, not just "it imports.
 
 - **Repo:** `harshavardhan379/personal-health-intelligence` on GitHub, branch `main`.
 - **Linear:** team `YGH`, project "Personal Health Intelligence App" — https://linear.app/harshavardhan-p/team/YGH
-- **Milestones M0 (partially), M1 through M12: Done.** M13 (Safety Layer) is next, not started.
+- **Milestones M0 (partially), M1 through M13: Done.** M14 (Evaluation & PersonalHealthBench) is next.
 - **Latest commit:** see `git log` (M12 landed as `2c5447f`, followed by a live-testing fix commit). Run `git log --oneline | cat` to get the real current state — this
   number is stale the moment new work lands.
 - **126 original Linear issues + 11 M11b (fine-tuning) issues added mid-project = 137 total.**
@@ -234,6 +234,32 @@ surfaced in `uncertainty` and `claim_verifications`. YGH-52 to YGH-57 are Done.
 one of them (e.g. "dose changed from 500mg to 1000mg" citing only the 1000mg record) can still be
 labeled CONTRADICTED. Checking numbers against all evidence would weaken the check, so it was left.
 
+### Review-gate leak fix (found by live testing after M12)
+Embeddings used to be built from raw page text at upload, and `search_semantic` filtered only by
+user. An UNREVIEWED report's text reached the assistant, which stated a cholesterol of 240 mg/dL as
+fact for an account with zero confirmed events, and the verifier called it SUPPORTED (it checks
+against the same raw evidence). Fixed: embeddings now belong to a confirmed event
+(`embeddings.health_event_id`, migration `0002`), are created/removed by
+`sync_event_embedding()` on confirm/edit/reject, and search re-checks the review status. After
+pulling this, run `alembic upgrade head` then `python database/seeds/backfill_event_embeddings.py`.
+
+### M13 — Safety Layer (YGH-5, 58, 59, 60, 61, 62)
+`packages/schemas/safety.py` (taxonomy + actions), `services/safety/{classifier,policy,output_guard,gate}.py`,
+`docs/02_SAFETY_SPEC.md`, and `tests/safety/` (346 cases). Two checkpoints around the model in
+`generate_verified_answer`: dangerous questions are refused BEFORE retrieval/the model (fixed text,
+the model is never called), and the model's output is scanned AFTER for diagnosis / treatment
+directives / dose instructions / false reassurance. `VerifiedAnswer` gained `safety_category` and
+`safety_action`.
+- **Key finding, read before changing the classifier:** keyword rules did not generalise. Tuned on
+  one batch they missed 13-17 of every 20-24 unsafe questions in the next batch. What fixed it was
+  flipping the default to FAIL-CLOSED (a question about the user is answered only if it positively
+  looks like a records lookup; otherwise CLARIFY), not adding keywords. Full numbers and caveats
+  (small samples, same author, no adversarial testing) are in `docs/02_SAFETY_SPEC.md` section 8.
+- The classifier is a rule-based placeholder; the swap point is `classify_safety()`. Keep
+  `tests/safety` as the acceptance suite.
+- A live check of the five brief queries ("Do I have cancer?" etc.) confirmed all are refused with
+  no model call, while ordinary records questions are still answered.
+
 ### Session continuity
 `eb7c1d1` — this file was first created, then is being rewritten right now into the version
 you're reading, to be exhaustive rather than a summary.
@@ -319,7 +345,7 @@ Or use `http://localhost:8000/docs` — click **Authorize**, paste the raw token
 - **No frontend page for the assistant.** `apps/web/src/app/assistant/page.tsx` and
   `settings/page.tsx` are empty placeholders (`PagePlaceholder` component). The assistant is
   fully functional via the API; wiring a real chat UI is M15 (Frontend Productization).
-- **No automated integration tests.** Only 47 pure-function unit tests exist
+- **No automated integration tests.** Only 394 tests exist (48 unit, 346 safety), all pure-function with zero DB/model dependency
   (`tests/unit/`, zero DB/network dependency, run in ~0.2s). Every multi-service flow (upload
   pipeline, the AI assistant end to end, cross-user isolation) was verified **manually, live**,
   and the result documented in each Linear issue's comment — formalizing these into
@@ -328,9 +354,9 @@ Or use `http://localhost:8000/docs` — click **Authorize**, paste the raw token
   exists (`app/core/logging.py`); cross-request correlation doesn't. `AITrace` table exists in
   the schema with zero writers — reserved for M16.
 - **Evidence verification is built (M12)** but is rule-based, not an LLM: see the limitation noted in §3.
-- **No safety classifier yet.** The system prompt in `generate.py` says "never diagnose, prescribe,
-  or direct treatment," but nothing *enforces* that if the model ignores the instruction — that's
-  M13.
+- **Safety layer is built (M13)** but rule-based, English-only, and has no conversation memory (each
+  question is classified alone). See `docs/02_SAFETY_SPEC.md` section 9. Run `pytest tests/safety`
+  on every AI-related change. CI wiring is M18.
 - **Deployment, CI, production Docker, security review, data-deletion UI:** all unstarted (M17,
   M18).
 
@@ -382,7 +408,7 @@ reproducible evidence of exactly the failure mode M12 must catch. It was fixed b
 kind of catch automatic and general, not something that needs discovering and hand-fixing every
 time it recurs for a question type nobody specifically guarded.
 
-### M13 — Safety Layer
+### M13 — Safety Layer (DONE, kept for reference)
 Safety taxonomy (`SAFE_INFORMATIONAL`, `PERSONAL_HISTORY`, `HIGH_RISK_MEDICAL`,
 `DIAGNOSIS_REQUEST`, `PRESCRIPTION_REQUEST`, `TREATMENT_REQUEST`, `EMERGENCY_REQUEST`), a
 classifier, response policies (`ALLOW`, `ALLOW_WITH_UNCERTAINTY`, `CLARIFY`, `ABSTAIN`,
@@ -448,7 +474,7 @@ is how a project like this quietly rots into something that looks done but isn't
    far — the `passlib`/`bcrypt` incompatibility, the `seed.py` import error, the Swagger auth
    mismatch, the structured-search substring bug, three separate JSON-formatting failures, the
    TREND hallucination — was found by actually running the code against live Postgres and a live
-   LLM, not by unit tests or by reading the code.** Unit tests are necessary (47 exist, all pure
+   LLM, not by unit tests or by reading the code.** Unit tests are necessary (394 exist, all pure
    functions, all passing) but they are not sufficient on their own for anything that touches the
    database, the network, or a model. If Docker/Ollama aren't available in a given environment,
    say so explicitly and name exactly what couldn't be verified — never claim "done" for something
@@ -506,13 +532,13 @@ Do this, in order:
 3. Run the launch sequence in §5. Confirm the assistant actually answers a question correctly
    against the `realtest@example.com` account (§4) before writing any new code — that's your own
    "is the stack actually alive" check, same discipline as §9's rule 2.
-4. Pick up at M13 (§8) unless told otherwise, following the method in §9 exactly — it's not
+4. Pick up at M14 (§8) unless told otherwise, following the method in §9 exactly — it's not
    optional stylistic preference, it's what kept this project's "Done" label meaning something
    real for 11 straight milestones.
 5. Update this file (or write a new dated one) at the end of whatever milestone you complete.
 
 ---
 
-*Last updated after M12 completion and its live-testing fixes. An out-of-date handover is worse
+*Last updated after M13 completion. An out-of-date handover is worse
 than none — keep it honest or delete the stale parts rather than let them mislead the next
 session.*

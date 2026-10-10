@@ -14,6 +14,8 @@ from packages.schemas.answer import Answer
 from packages.schemas.evidence import Evidence
 from packages.schemas.verification import VerifiedAnswer
 from services.reasoning.generate import generate_answer_with_context
+from services.reasoning.intent_classifier import classify_intent
+from services.safety.gate import evaluate_question, guard_output, refusal_answer
 from services.verification.match import match_claim_to_evidence
 
 logger = logging.getLogger("app.verification")
@@ -53,6 +55,17 @@ def generate_verified_answer(
     db: Session, user_id: uuid.UUID, question: str
 ) -> VerifiedAnswer:
     """The gated entry point — use this instead of generate_answer() wherever
-    an answer is actually shown to a user (the API route)."""
+    an answer is actually shown to a user (the API route).
+
+    Order matters: safety check on the QUESTION first (a blocked question never
+    reaches retrieval or the model), then generate, verify, and finally safety
+    check on the model's OUTPUT.
+    """
+    decision = evaluate_question(question)
+    intent = classify_intent(question)
+    if decision.blocks_generation:
+        return refusal_answer(decision, intent)
+
     answer, context = generate_answer_with_context(db, user_id, question)
-    return verify_answer(answer, context.evidence)
+    verified = verify_answer(answer, context.evidence)
+    return guard_output(verified, decision, intent)

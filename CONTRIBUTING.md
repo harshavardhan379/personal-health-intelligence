@@ -26,6 +26,7 @@ Copy `services/api/.env.example` to `services/api/.env` and fill in real values 
 ruff check .              # Python lint
 cd apps/web && npm run lint   # TypeScript lint
 pytest                    # unit tests (pure logic; DB-backed tests need `docker compose up` first)
+pytest tests/safety       # safety regression suite: run on EVERY change to AI, retrieval or safety code
 ```
 
 ## Pre-commit
