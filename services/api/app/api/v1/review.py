@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from packages.schemas.db import get_db
 from packages.schemas.models import HealthEvent, Provenance, User
 from services.api.app.core.deps import get_current_user
+from services.retrieval.semantic import sync_event_embedding
 
 router = APIRouter(prefix="/events", tags=["review"])
 
@@ -95,6 +96,7 @@ def confirm_event(
 
     event.review_status = "confirmed"
     event.reviewed_at = datetime.now(timezone.utc)
+    sync_event_embedding(db, event)
     db.commit()
     db.refresh(event)
     return _to_out(event)
@@ -113,6 +115,7 @@ def edit_event(
     event.data = payload.data
     event.review_status = "edited"
     event.reviewed_at = datetime.now(timezone.utc)
+    sync_event_embedding(db, event)
     db.commit()
     db.refresh(event)
     return _to_out(event)
@@ -129,6 +132,7 @@ def reject_event(
 
     event.review_status = "rejected"
     event.reviewed_at = datetime.now(timezone.utc)
+    sync_event_embedding(db, event)
     db.commit()
     db.refresh(event)
     return _to_out(event)

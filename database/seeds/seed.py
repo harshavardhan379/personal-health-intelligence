@@ -17,6 +17,7 @@ sys.path.insert(0, os.getcwd())
 from packages.schemas.db import SessionLocal
 from packages.schemas.models import Document, HealthEvent, Provenance, User
 from services.api.app.core.security import hash_password
+from services.retrieval.semantic import sync_event_embedding
 
 
 def seed() -> None:
@@ -77,6 +78,9 @@ def seed() -> None:
                     quote=f"HbA1c: {value}% (ref 4.0-5.6)",
                 )
             )
+            db.flush()
+            db.refresh(event)
+            sync_event_embedding(db, event)
 
         db.commit()
         print(f"Seeded demo user {user.email} (id={user.id}) with 2 confirmed HbA1c events.")

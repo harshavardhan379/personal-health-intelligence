@@ -19,7 +19,6 @@ from services.api.app.core.deps import get_current_user
 from services.api.app.core.storage import UploadValidationError, save_upload, validate_upload
 from services.document_processing.normalize import ProcessingError, process_document
 from services.extraction.pipeline import extract_all
-from services.retrieval.semantic import embed_document_pages
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 logger = logging.getLogger("app.documents")
@@ -86,8 +85,6 @@ def _run_pipeline(document_id: str, user_id: str, mime_type: str, storage_path: 
                     is_ocr=page.is_ocr,
                 )
             )
-
-        embed_document_pages(db, doc.user_id, doc.id, normalized.pages)
 
         facts = extract_all(normalized.pages)
         for fact in facts:

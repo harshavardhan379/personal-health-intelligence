@@ -133,6 +133,15 @@ class Embedding(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # One embedding per CONFIRMED health event (never raw page text), so semantic
+    # search can only ever surface facts a human has reviewed. Rows are created
+    # and removed by services/retrieval/semantic.py::sync_event_embedding.
+    health_event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("health_events.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id"))
     page_number: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)

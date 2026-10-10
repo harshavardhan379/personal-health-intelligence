@@ -44,3 +44,19 @@ def test_chunk_text_splits_long_text():
     chunks = chunk_text("a" * 1200, max_chars=500)
     assert len(chunks) == 3
     assert all(len(c) <= 500 for c in chunks)
+
+
+def test_embedding_text_is_the_dated_fact_not_raw_page_text():
+    """Semantic search now indexes confirmed EVENTS (not raw pages), so what gets
+    embedded and shown as evidence is the dated one-line fact."""
+    from datetime import date
+
+    from packages.schemas.models import HealthEvent
+    from services.retrieval.semantic import embedding_text
+
+    event = HealthEvent(
+        event_type="medication",
+        event_date=date(2026, 4, 10),
+        data={"medication": "Metformin", "dose": "1000mg"},
+    )
+    assert embedding_text(event) == "2026-04-10: Metformin 1000mg"
