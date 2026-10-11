@@ -92,15 +92,20 @@ the extraction validator rejects future dates, so a today-relative dataset would
 change and could become invalid. Each patient's history starts at a seeded random date in the
 window and must end inside it.
 
-| Archetype | History length | Gap between reports |
+| Archetype | Gap between reports (days) | Span (derived) |
 |---|---|---|
-| 1 Improving, 2 Worsening | 9 to 15 months | about 90 days, plus or minus 14 |
-| 3 Stable | 12 to 18 months | about 150 days, plus or minus 20 |
-| 4 Contradiction | 4 to 8 months | 30 to 120 days |
-| 5 Missing information | 3 to 6 months | irregular |
-| 6 Duplicate upload | 3 to 6 months | 60 to 120 days |
-| 7 Acute episode | about 3 weeks | 2 to 9 days |
-| 8 Multi-document | 8 to 14 months | 30 to 90 days |
+| 1 Improving, 2 Worsening | 76 to 104 (about 90, plus or minus 14) | about 150 to 210 |
+| 3 Stable | 130 to 170 | about 260 to 340 |
+| 4 Contradiction | 30 to 120 | 30 to 120 |
+| 5 Missing information | 14 to 90, irregular | up to about 180 |
+| 6 Duplicate upload | 60 to 120 | 60 to 120 |
+| 7 Acute episode | 2 to 9 | about 3 weeks |
+| 8 Multi-document | 30 to 90 | about 30 to 90 per pair |
+
+**Decision 15: gaps rule, the span is derived.** An earlier draft also gave each archetype a
+"history length" (for example 9 to 15 months for chronic patients). It contradicted the gaps
+(three reports about 90 days apart span about 6 months, not 9 to 15), so it was removed; the
+span of a history is simply first report to last.
 
 Rules: admissions last 3 to 9 days; a prescription is dated at or before the visit it
 follows; dose changes happen on a report date, not between reports; visits fall on weekdays.
@@ -137,6 +142,33 @@ the system grading itself. The generator instead plants margins on either side o
 No planted trend sits near the 5% boundary. **Contradictions:** the discharge summary and
 the outpatient prescription give different doses on the same or a nearby date (for example
 Metformin 1000mg against 850mg).
+
+## Planner rules, chronic group (decision 16)
+
+Implemented in `evaluation/planner.py` (piece 2a of the generator). Archetypes 4 to 8 follow.
+
+1. Dates: the first report falls at a seeded random weekday in the window; later reports
+   follow at a gap drawn from the archetype's range; every date is moved forward to a
+   weekday; a history that would pass 2026-06-30 is redrawn.
+2. **Improving:** HbA1c starts at 8.5 to 10.5 and falls 18 to 35 percent over three reports,
+   never below 5.8. Metformin 500mg steps to 850mg at the 2nd or 3rd report.
+3. **Worsening:** HbA1c starts at 6.6 to 8.0 and rises 18 to 35 percent. Metformin steps
+   850mg to 1000mg and a second drug (Glipizide 5mg or insulin glargine 10IU, drawn at
+   random) is added, both at the 2nd or 3rd report. Between the 2nd and 3rd report the
+   patient is admitted for 3 to 9 days (a discharge summary, two linked encounter events).
+4. **Stable:** systolic BP starts at 118 to 135 with every reading within 2 percent of the
+   first, on a Lisinopril dose (5mg or 10mg) that never changes.
+5. Each lab report carries 1 to 3 secondary labs held stable within 2 percent, so only the
+   primary lab carries a planted trend. Glucose is excluded from the diabetic archetypes.
+6. Values are rounded to the lab's printed precision, and redrawn until the planted trend
+   still holds after rounding.
+7. A prescription lists every medication currently taken; a dose change always falls on a
+   report date. A discharge summary lists the prescription in force at discharge.
+8. A follow-up visit (improving and worsening) falls on the last report date with 0 to 2
+   symptoms: more likely when worsening.
+
+Deferred, not yet decided: a few lab lines carrying an earlier collection date than their
+report (needs a rate).
 
 ## Lab catalog
 

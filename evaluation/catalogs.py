@@ -77,6 +77,12 @@ ENCOUNTER_TYPES = (
     "Hospital Admission", "Hospital Discharge",
 )
 FACILITIES = ("Riverside Clinic", "Northgate Medical Center", "Lakeview Hospital")
+HOSPITAL = "Lakeview Hospital"
+ENCOUNTER_REASONS = (
+    "routine checkup", "diabetes follow-up", "medication review", "blood pressure follow-up",
+)
+STAY_REASONS = ("uncontrolled hyperglycemia", "acute infection", "dehydration")
+SYMPTOM_DETAILS = ("mild", "mild, intermittent", "persistent", "worse in the evening")
 
 
 # --- name aliases (framework decision 8) ---------------------------------------------
@@ -120,8 +126,7 @@ class Archetype:
     key: str
     label: str
     docs: dict  # doc_type -> count
-    history_days: tuple  # (min, max) length of the patient's history
-    gap_days: tuple  # (min, max) days between consecutive reports
+    gap_days: tuple  # (min, max) days between consecutive reports; the span is derived
     reuploads: int = 0  # extra duplicate uploads on top of docs
 
     @property
@@ -131,23 +136,23 @@ class Archetype:
 
 ARCHETYPES = (
     Archetype("improving_chronic", "Improving chronic",
-              {"lab_report": 3, "prescription": 2, "visit_note": 1}, (270, 450), (76, 104)),
+              {"lab_report": 3, "prescription": 2, "visit_note": 1}, (76, 104)),
     Archetype("worsening_chronic", "Worsening chronic",
               {"lab_report": 3, "prescription": 2, "visit_note": 1, "discharge_summary": 1},
-              (270, 450), (76, 104)),
+              (76, 104)),
     Archetype("stable", "Stable",
-              {"lab_report": 3, "prescription": 1}, (360, 540), (130, 170)),
+              {"lab_report": 3, "prescription": 1}, (130, 170)),
     Archetype("contradiction", "Contradiction",
-              {"lab_report": 2, "prescription": 2, "discharge_summary": 1}, (120, 240), (30, 120)),
+              {"lab_report": 2, "prescription": 2, "discharge_summary": 1}, (30, 120)),
     Archetype("missing_information", "Missing information",
-              {"lab_report": 1, "prescription": 1, "visit_note": 1}, (90, 180), (14, 90)),
+              {"lab_report": 1, "prescription": 1, "visit_note": 1}, (14, 90)),
     Archetype("duplicate_upload", "Duplicate upload",
-              {"lab_report": 2, "prescription": 1}, (90, 180), (60, 120), reuploads=1),
+              {"lab_report": 2, "prescription": 1}, (60, 120), reuploads=1),
     Archetype("acute_episode", "Acute episode",
-              {"lab_report": 1, "prescription": 1, "discharge_summary": 1}, (18, 24), (2, 9)),
+              {"lab_report": 1, "prescription": 1, "discharge_summary": 1}, (2, 9)),
     Archetype("multi_document", "Multi-document",
               {"lab_report": 2, "prescription": 1, "visit_note": 1, "discharge_summary": 1,
-               "combined": 2}, (240, 420), (30, 90)),
+               "combined": 2}, (30, 90)),
 )
 ARCHETYPE_BY_KEY = {a.key: a for a in ARCHETYPES}
 
