@@ -170,6 +170,37 @@ Implemented in `evaluation/planner.py` (piece 2a of the generator). Archetypes 4
 Deferred, not yet decided: a few lab lines carrying an earlier collection date than their
 report (needs a rate).
 
+## Planner rules, archetypes 4 to 8 (decision 17)
+
+Made while completing the planner, following the spec; recorded here for review.
+
+- **Duplicates are not extra truth events.** The framework scores a second extraction of a
+  fact as a false positive, so a fact exists once in the ground truth however often the
+  documents repeat it. Repeats are links (`duplicate_of`), and `tags.duplicates_injected`
+  counts them: every line of a re-uploaded document, plus every carried-forward line.
+- **Archetype 6 (duplicate):** two kinds of repeat. (a) a lab result is carried forward onto
+  the next report with its original date; (b) one whole document (a lab report or the
+  prescription, chosen at random) is uploaded a second time, so it repeats every fact in it.
+  The primary lab is total cholesterol (planted decrease) on a statin.
+- **Archetype 4 (contradiction):** an outpatient prescription and the discharge summary,
+  **dated the same day**, give different Metformin doses (the discharge summary agrees with the
+  earlier prescription). Both facts stay in the truth, cross-linked in `conflicts_with`;
+  neither is declared correct. Only **dose** contradictions are generated: the approved
+  document mix has no two reports on one date, so value contradictions between lab reports
+  are not covered (a known gap).
+- **Archetype 5 (missing information):** a sparse record (two single-reading labs, one
+  prescription, one visit). `tags.missing_info` lists 3 labs and 2 medications that are
+  never documented, so questions about them must be answered "not in the records". Two
+  common cases: a blood-pressure drug with no blood pressure on file, a statin with no
+  cholesterol.
+- **Archetype 7 (acute):** labs and a 7-day Amoxicillin course on day 0 (the prescription
+  carries `course_days`), an admission 2 to 9 days later for "acute infection", and a
+  discharge summary. Its medication list is empty if the course had already ended.
+- **Archetype 8 (multi-document):** seven documents over five dates. HbA1c falls across four
+  documents (lab reports and combined reports); LDL falls across three; total cholesterol
+  and creatinine are stable. Atorvastatin steps 20mg to 40mg on the second combined report.
+  Every combined report holds all four kinds of fact.
+
 ## Lab catalog
 
 Restricted to what the current extractor can parse, so degradation, not an unsupported

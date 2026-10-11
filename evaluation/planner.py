@@ -13,8 +13,14 @@ with services.trends.trend_engine: that would be the system grading itself (data
 decision 13). Margins sit well either side of the system's 5 percent line: a planted
 decrease or increase is at least 15 percent, a planted "stable" at most 2 percent.
 
-Piece 2a covers the chronic group (improving, worsening, stable). The other archetypes
-raise NotImplementedError until piece 2b.
+Duplicates (decision 17): a fact appears ONCE in the ground truth however many times the
+documents repeat it, because the framework scores a second extraction of the same fact as a
+false positive. Repeats are recorded as `duplicate_of` links on pending events and
+documents, and counted in tags["duplicates_injected"].
+
+Contradictions (decision 17): both conflicting facts stay in the ground truth, cross-linked
+through `conflicts_with`. Neither is declared true: a correct system surfaces the
+disagreement.
 """
 
 import random
@@ -47,6 +53,7 @@ TYPE_ORDER = {
 }
 OUTPATIENT_FACILITIES = ("Riverside Clinic", "Northgate Medical Center")
 VISIT_SYMPTOMS = ("fatigue", "blurred vision", "dizziness", "headache")
+INFECTION_SYMPTOMS = ("fever", "cough", "sore throat")
 
 # Planted-trend margins (decision 13).
 MIN_CHANGE = 0.15  # a planted increase / decrease changes by at least 15 percent
@@ -62,26 +69,33 @@ SECONDARY_BASELINES = {
     "Hemoglobin": (12.5, 16.5),
 }
 DIABETIC_SECONDARY = ("Total Cholesterol", "LDL", "Creatinine", "Hemoglobin")
+ACUTE_LABS = ("Hemoglobin", "Creatinine", "Glucose")
+COURSE_DAYS = 7  # the short antibiotic course in the acute archetype
 
 
 # --- plan data structures -----------------------------------------------------------
 
 
-@dataclass
+@dataclass(eq=False)
 class PendingEvent:
     event_type: str
     event_date: date
     data: dict
+    # A repeat of a fact already in the truth. It is rendered into its document but is not
+    # a separate ground-truth event; at finalisation event_id becomes the original's.
+    duplicate_of: Optional["PendingEvent"] = None
+    conflicts_with: list = field(default_factory=list)
+    event_id: str = ""
 
 
-@dataclass
+@dataclass(eq=False)
 class PlannedDoc:
     doc_type: str
     doc_date: date
     pending: list = field(default_factory=list)
     index: int = 0  # assigned at finalisation, 1-based, by (date, type)
-    event_ids: list = field(default_factory=list)
-    duplicate_of: Optional[str] = None
+    event_ids: list = field(default_factory=list)  # every fact the document contains
+    duplicate_of: Optional["PlannedDoc"] = None  # a re-upload of another document
 
 
 @dataclass
@@ -113,40 +127,86 @@ class PatientPlan:
                     "doc_type": d.doc_type,
                     "doc_date": d.doc_date.isoformat(),
                     "event_ids": d.event_ids,
-                    "duplicate_of": d.duplicate_of,
+                    "duplicate_of": self.doc_id(d.duplicate_of) if d.duplicate_of else None,
                 }
                 for d in self.docs
             ],
         }
 
 
+def _base_tags() -> dict:
+    return {
+        "primary_lab": None, "trend": {}, "dose_changes": [], "medications_added": [],
+        "medication_courses": [], "hospital_stays": [], "has_contradiction": False,
+        "contradictions": [], "missing_info": [], "duplicates_injected": 0,
+        "duplicate_documents": [],
+    }
+
+
 class _Builder:
     def __init__(self, n: int) -> None:
         self.n = n
         self.docs: list = []
+        self.conflicts: list = []  # (kind, [pending, pending])
 
     def doc(self, doc_type: str, doc_date: date) -> PlannedDoc:
         planned = PlannedDoc(doc_type=doc_type, doc_date=doc_date)
         self.docs.append(planned)
         return planned
 
+    def link_conflict(self, kind: str, a: PendingEvent, b: PendingEvent) -> None:
+        a.conflicts_with.append(b)
+        b.conflicts_with.append(a)
+        self.conflicts.append((kind, [a, b]))
+
+    def reupload(self, original: PlannedDoc) -> PlannedDoc:
+        """The same document uploaded again: identical content, so every line repeats a fact."""
+        copy = self.doc(original.doc_type, original.doc_date)
+        copy.duplicate_of = original
+        for p in original.pending:
+            root = p.duplicate_of or p
+            copy.pending.append(PendingEvent(p.event_type, p.event_date, dict(p.data),
+                                             duplicate_of=root))
+        return copy
+
     def finalise(self, archetype: str, tags: dict) -> PatientPlan:
-        docs = sorted(self.docs, key=lambda d: (d.doc_date, TYPE_ORDER[d.doc_type]))
-        events = []
+        docs = sorted(
+            self.docs,
+            key=lambda d: (d.doc_date, TYPE_ORDER[d.doc_type], d.duplicate_of is not None),
+        )
         counter = 0
         for index, doc in enumerate(docs, start=1):
             doc.index = index
-            for pending in doc.pending:
-                counter += 1
-                ev = Event(
-                    event_id=event_id(self.n, counter),
-                    event_type=pending.event_type,
-                    event_date=pending.event_date,
-                    date_precision="day",
-                    data=pending.data,
-                )
-                doc.event_ids.append(ev.event_id)
-                events.append(ev)
+            for p in doc.pending:
+                if p.duplicate_of is None:
+                    counter += 1
+                    p.event_id = event_id(self.n, counter)
+        for doc in docs:
+            for p in doc.pending:
+                if p.duplicate_of is not None:
+                    p.event_id = p.duplicate_of.event_id
+
+        events = []
+        for doc in docs:
+            for p in doc.pending:
+                doc.event_ids.append(p.event_id)
+                if p.duplicate_of is None:
+                    events.append(Event(
+                        event_id=p.event_id, event_type=p.event_type, event_date=p.event_date,
+                        date_precision="day", data=p.data,
+                        conflicts_with=[c.event_id for c in p.conflicts_with],
+                    ))
+
+        tags["duplicates_injected"] = sum(
+            1 for d in docs for p in d.pending if p.duplicate_of is not None)
+        tags["duplicate_documents"] = [document_id(self.n, d.index)
+                                       for d in docs if d.duplicate_of is not None]
+        tags["has_contradiction"] = bool(self.conflicts)
+        tags["contradictions"] = [
+            {"kind": kind, "date": members[0].event_date.isoformat(),
+             "event_ids": [m.event_id for m in members]}
+            for kind, members in self.conflicts
+        ]
         return PatientPlan(
             n=self.n, archetype=archetype, split=split_for(self.n),
             events=events, docs=docs, tags=tags,
@@ -222,6 +282,11 @@ def plant_series(rng, lab: str, direction: str, start: float, count: int,
     raise RuntimeError(f"could not plant a {direction} series for {lab} from {start}")
 
 
+def single_reading(rng, lab: str) -> float:
+    low, high = SECONDARY_BASELINES[lab]
+    return float(round(rng.uniform(low, high), LABS[lab].decimals))
+
+
 # --- event helpers ------------------------------------------------------------------------
 
 
@@ -232,11 +297,11 @@ def _lab_event(lab: str, value: float, when: date) -> PendingEvent:
     })
 
 
-def _med_event(med: str, dose_index: int, when: date) -> PendingEvent:
+def _med_event(med: str, dose_index: int, when: date, **extra) -> PendingEvent:
     spec = MEDS[med]
-    return PendingEvent("medication", when, {
-        "medication": med, "dose": spec.doses[dose_index], "frequency": spec.frequency,
-    })
+    data = {"medication": med, "dose": spec.doses[dose_index], "frequency": spec.frequency}
+    data.update(extra)
+    return PendingEvent("medication", when, data)
 
 
 def _symptom_event(rng, symptom: str, when: date) -> PendingEvent:
@@ -245,16 +310,23 @@ def _symptom_event(rng, symptom: str, when: date) -> PendingEvent:
     })
 
 
-def _write_prescription(b: _Builder, when: date, state: dict) -> PlannedDoc:
+def _visit_event(rng, when: date, kind: str = "Follow-up Visit") -> PendingEvent:
+    return PendingEvent("encounter", when, {
+        "encounter_type": kind, "provider_or_facility": rng.choice(OUTPATIENT_FACILITIES),
+        "reason": rng.choice(ENCOUNTER_REASONS),
+    })
+
+
+def _write_prescription(b: _Builder, when: date, state: dict, **extra_by_med) -> PlannedDoc:
     """A prescription lists EVERY medication the patient is on, at its current dose."""
     doc = b.doc("prescription", when)
     for med in sorted(state):
-        doc.pending.append(_med_event(med, state[med], when))
+        doc.pending.append(_med_event(med, state[med], when, **extra_by_med.get(med, {})))
     return doc
 
 
 def _meds_at(prescriptions: list, when: date) -> dict:
-    """The medication state in force on `when`: the last prescription dated on or before it."""
+    """The medication state in force on `when`: the last entry dated on or before it."""
     state: dict = {}
     for rx_date, rx_state in prescriptions:
         if rx_date <= when:
@@ -262,14 +334,33 @@ def _meds_at(prescriptions: list, when: date) -> dict:
     return dict(state)
 
 
+def _add_visit_symptoms(rng, doc: PlannedDoc, when: date, weights: list) -> None:
+    count = rng.choices([0, 1, 2], weights)[0]
+    for symptom in sorted(rng.sample(VISIT_SYMPTOMS, count)):
+        doc.pending.append(_symptom_event(rng, symptom, when))
+
+
+def _lab_report(b: _Builder, when: date, readings: dict) -> PlannedDoc:
+    doc = b.doc("lab_report", when)
+    for lab in sorted(readings, key=lambda name: (name != "HbA1c", name)):
+        doc.pending.append(_lab_event(lab, readings[lab], when))
+    return doc
+
+
 def plan_stay(b: _Builder, rng, stay_no: int, admission: date, prescriptions: list,
-              symptom_pool: tuple) -> dict:
+              symptom_pool: tuple, symptoms: int = 1, weekday_discharge: bool = False,
+              course_end: Optional[date] = None, reason: Optional[str] = None) -> tuple:
     """A hospital stay (decision 11): TWO encounter events, linked by a shared stay_id that
     is not part of matching, written in one discharge summary dated at discharge. The
-    medication list is whatever prescription is in force at discharge."""
+    medication list is whatever prescription is in force at discharge, and is empty if a
+    short course (course_end) has already finished. Returns (stay info, discharge doc)."""
     stay_id = f"{patient_id(b.n)}-s{stay_no:02d}"
-    discharge = admission + timedelta(days=rng.randint(3, 9))
-    reason = rng.choice(STAY_REASONS)
+    if weekday_discharge:
+        lengths = [k for k in range(3, 10) if (admission + timedelta(days=k)).weekday() < 5]
+        discharge = admission + timedelta(days=rng.choice(lengths))
+    else:
+        discharge = admission + timedelta(days=rng.randint(3, 9))
+    reason = reason or rng.choice(STAY_REASONS)
 
     def encounter(kind: str, when: date) -> PendingEvent:
         return PendingEvent("encounter", when, {
@@ -279,16 +370,19 @@ def plan_stay(b: _Builder, rng, stay_no: int, admission: date, prescriptions: li
 
     doc = b.doc("discharge_summary", discharge)
     doc.pending.append(encounter("Hospital Admission", admission))
-    doc.pending.append(_symptom_event(rng, rng.choice(symptom_pool), admission))
+    for symptom in sorted(rng.sample(symptom_pool, symptoms)):
+        doc.pending.append(_symptom_event(rng, symptom, admission))
     doc.pending.append(encounter("Hospital Discharge", discharge))
-    state = _meds_at(prescriptions, discharge)
-    for med in sorted(state):
-        doc.pending.append(_med_event(med, state[med], discharge))
-    return {"stay_id": stay_id, "admission": admission.isoformat(),
+    if course_end is None or discharge <= course_end:
+        state = _meds_at(prescriptions, discharge)
+        for med in sorted(state):
+            doc.pending.append(_med_event(med, state[med], discharge))
+    info = {"stay_id": stay_id, "admission": admission.isoformat(),
             "discharge": discharge.isoformat(), "reason": reason}
+    return info, doc
 
 
-# --- the chronic group (archetypes 1, 2, 3) ----------------------------------------------
+# --- archetypes 1-3: the chronic group ----------------------------------------------------
 
 
 def _plan_chronic(b: _Builder, rng, key: str) -> dict:
@@ -318,15 +412,13 @@ def _plan_chronic(b: _Builder, rng, key: str) -> dict:
 
     labs = [primary] + sorted(secondary)
     for i, when in enumerate(dates):
-        report = b.doc("lab_report", when)
-        for lab in labs:
-            report.pending.append(_lab_event(lab, series[lab][i], when))
+        _lab_report(b, when, {lab: series[lab][i] for lab in labs})
+
+    tags = _base_tags()
+    tags["primary_lab"] = primary
+    tags["trend"] = {lab: ("stable" if lab != primary else direction) for lab in labs}
 
     # Medications. A dose change always falls on a report date (never between reports).
-    tags = {"primary_lab": primary, "trend": {lab: ("stable" if lab != primary else direction)
-                                              for lab in labs},
-            "dose_changes": [], "medications_added": [], "hospital_stays": [],
-            "has_contradiction": False, "missing_info": [], "duplicates_injected": 0}
     change_at = rng.choice([1, 2])
     prescriptions = []
     if key == "improving_chronic":
@@ -355,21 +447,200 @@ def _plan_chronic(b: _Builder, rng, key: str) -> dict:
 
     # A follow-up visit on the last report date (not for the stable archetype).
     if "visit_note" in arch.docs:
-        visit_date = dates[-1]
-        visit = b.doc("visit_note", visit_date)
-        visit.pending.append(PendingEvent("encounter", visit_date, {
-            "encounter_type": "Follow-up Visit",
-            "provider_or_facility": rng.choice(OUTPATIENT_FACILITIES),
-            "reason": rng.choice(ENCOUNTER_REASONS)}))
+        visit = b.doc("visit_note", dates[-1])
+        visit.pending.append(_visit_event(rng, dates[-1]))
         weights = [5, 3, 1] if key == "improving_chronic" else [1, 3, 4]
-        for symptom in sorted(rng.sample(VISIT_SYMPTOMS, rng.choices([0, 1, 2], weights)[0])):
-            visit.pending.append(_symptom_event(rng, symptom, visit_date))
+        _add_visit_symptoms(rng, visit, dates[-1], weights)
 
     # A worsening patient is also admitted once, between the 2nd and 3rd report.
     if "discharge_summary" in arch.docs:
         admission = next_weekday(dates[1] + timedelta(days=rng.randint(5, 12)))
-        tags["hospital_stays"].append(
-            plan_stay(b, rng, 1, admission, prescriptions, VISIT_SYMPTOMS))
+        info, _ = plan_stay(b, rng, 1, admission, prescriptions, VISIT_SYMPTOMS)
+        tags["hospital_stays"].append(info)
+    return tags
+
+
+# --- archetype 4: contradiction ----------------------------------------------------------
+
+
+def _plan_contradiction(b: _Builder, rng, key: str) -> dict:
+    """The discharge summary and an outpatient prescription written the SAME DAY list
+    different doses of the same drug. Both facts are kept, marked as conflicting."""
+    arch = ARCHETYPE_BY_KEY[key]
+    t0, t1 = report_dates(rng, arch.gap_days, 2)
+
+    hba1c = plant_series(rng, "HbA1c", "stable", rng.uniform(6.8, 7.8), 2)
+    other = rng.choice(["Total Cholesterol", "LDL", "Creatinine", "Hemoglobin"])
+    other_series = plant_series(rng, other, "stable", rng.uniform(*SECONDARY_BASELINES[other]), 2)
+    for i, when in enumerate((t0, t1)):
+        _lab_report(b, when, {"HbA1c": hba1c[i], other: other_series[i]})
+
+    tags = _base_tags()
+    tags["primary_lab"] = "HbA1c"
+    tags["trend"] = {"HbA1c": "stable", other: "stable"}
+
+    dose_in_force = rng.choice([0, 1])
+    _write_prescription(b, t0, {"Metformin": dose_in_force})
+    prescriptions = [(t0, {"Metformin": dose_in_force})]
+
+    # Admitted soon after t0 and discharged on a weekday, before the second lab report.
+    admission = next_weekday(t0 + timedelta(days=rng.randint(5, 12)))
+    info, summary = plan_stay(b, rng, 1, admission, prescriptions, VISIT_SYMPTOMS,
+                              weekday_discharge=True)
+    tags["hospital_stays"].append(info)
+
+    # An outpatient prescription dated the same day as discharge, at a different dose.
+    other_dose = 1 if dose_in_force == 0 else rng.choice([0, 2])  # always a different rung
+    rx = _write_prescription(b, summary.doc_date, {"Metformin": other_dose})
+    discharge_line = next(p for p in summary.pending if p.event_type == "medication")
+    b.link_conflict("dose", discharge_line, rx.pending[0])
+    return tags
+
+
+# --- archetype 5: missing information ------------------------------------------------------
+
+
+def _plan_missing(b: _Builder, rng, key: str) -> dict:
+    """A sparse record. The tags list what was NEVER documented, so questions about it
+    must be answered 'not in the records'."""
+    arch = ARCHETYPE_BY_KEY[key]
+    t0, t1 = report_dates(rng, arch.gap_days, 2)
+
+    present = sorted(rng.sample(ACUTE_LABS, 2))
+    _lab_report(b, t0, {lab: single_reading(rng, lab) for lab in present})
+
+    med = rng.choice(["Atorvastatin", "Lisinopril"])
+    _write_prescription(b, t0, {med: rng.choice([0, 1])})
+
+    visit = b.doc("visit_note", t1)
+    visit.pending.append(_visit_event(rng, t1, rng.choice(["Annual Physical", "Follow-up Visit"])))
+    _add_visit_symptoms(rng, visit, t1, [1, 3, 1])
+
+    tags = _base_tags()
+    absent_labs = sorted(set(LABS) - set(present))
+    absent_meds = sorted(set(MEDS) - {med})
+    for lab in sorted(rng.sample(absent_labs, 3)):
+        tags["missing_info"].append({"kind": "lab", "name": lab})
+    for name in sorted(rng.sample(absent_meds, 2)):
+        tags["missing_info"].append({"kind": "medication", "name": name})
+    return tags
+
+
+# --- archetype 6: duplicate upload ----------------------------------------------------------
+
+
+def _plan_duplicate(b: _Builder, rng, key: str) -> dict:
+    """Two kinds of repeat: a lab result carried forward onto the next report, and one whole
+    document uploaded twice. Neither adds a ground-truth event; both are counted."""
+    arch = ARCHETYPE_BY_KEY[key]
+    t0, t1 = report_dates(rng, arch.gap_days, 2)
+
+    primary = "Total Cholesterol"
+    chol = plant_series(rng, primary, "decreasing", rng.uniform(215, 260), 2, low=140)
+    other = rng.choice(["Creatinine", "Hemoglobin", "Glucose"])
+    other_series = plant_series(rng, other, "stable", rng.uniform(*SECONDARY_BASELINES[other]), 2)
+    report1 = _lab_report(b, t0, {primary: chol[0], other: other_series[0]})
+    report2 = _lab_report(b, t1, {primary: chol[1], other: other_series[1]})
+
+    # Carried forward: report 2 prints report 1's cholesterol again, with its original date.
+    original = next(p for p in report1.pending if p.data["test_name"] == primary)
+    report2.pending.append(PendingEvent("lab", original.event_date, dict(original.data),
+                                        duplicate_of=original))
+
+    rx = _write_prescription(b, t0, {"Atorvastatin": rng.choice([1, 2])})
+
+    # One whole document uploaded a second time.
+    b.reupload(rng.choice([report1, report2, rx]))
+
+    tags = _base_tags()
+    tags["primary_lab"] = primary
+    tags["trend"] = {primary: "decreasing", other: "stable"}
+    return tags
+
+
+# --- archetype 7: acute episode -------------------------------------------------------------
+
+
+def _plan_acute(b: _Builder, rng, key: str) -> dict:
+    """Labs and a 7-day antibiotic course on day 0, an admission within 2-9 days, and a
+    discharge summary. The discharge medication list is empty if the course had ended."""
+    arch = ARCHETYPE_BY_KEY[key]
+    (t0,) = report_dates(rng, arch.gap_days, 1)
+
+    labs = sorted(rng.sample(ACUTE_LABS, rng.randint(2, 3)))
+    _lab_report(b, t0, {lab: single_reading(rng, lab) for lab in labs})
+
+    state = {"Amoxicillin": 0}
+    _write_prescription(b, t0, state, Amoxicillin={"course_days": COURSE_DAYS})
+    course_end = t0 + timedelta(days=COURSE_DAYS)
+
+    admission = next_weekday(t0 + timedelta(days=rng.randint(*arch.gap_days)))
+    info, _ = plan_stay(b, rng, 1, admission, [(t0, state)], INFECTION_SYMPTOMS,
+                        symptoms=rng.randint(1, 2), course_end=course_end,
+                        reason="acute infection")
+
+    tags = _base_tags()
+    tags["hospital_stays"].append(info)
+    tags["medication_courses"].append({
+        "medication": "Amoxicillin", "start": t0.isoformat(), "end": course_end.isoformat(),
+        "course_days": COURSE_DAYS})
+    return tags
+
+
+# --- archetype 8: multi-document -------------------------------------------------------------
+
+
+def _combined(b: _Builder, rng, when: date, readings: dict, state: dict,
+              symptom_weights: list) -> PlannedDoc:
+    """A combined clinic report: labs, medications, a visit and symptoms in one document
+    (always at least one symptom, so it really holds all four kinds of fact)."""
+    doc = b.doc("combined", when)
+    for lab in sorted(readings, key=lambda name: (name != "HbA1c", name)):
+        doc.pending.append(_lab_event(lab, readings[lab], when))
+    for med in sorted(state):
+        doc.pending.append(_med_event(med, state[med], when))
+    doc.pending.append(_visit_event(rng, when))
+    _add_visit_symptoms(rng, doc, when, symptom_weights)
+    return doc
+
+
+def _plan_multi(b: _Builder, rng, key: str) -> dict:
+    """Seven documents over five dates, mixing diabetes and lipids. Facts about one patient
+    are spread across lab reports, a prescription, combined reports, a visit and a stay."""
+    arch = ARCHETYPE_BY_KEY[key]
+    d0, d1, d2, d3, d4 = report_dates(rng, arch.gap_days, 5)
+
+    hba1c = plant_series(rng, "HbA1c", "decreasing", rng.uniform(8.0, 9.8), 4, low=5.8)
+    ldl = plant_series(rng, "LDL", "decreasing", rng.uniform(135, 165), 3, low=60)
+    chol = plant_series(rng, "Total Cholesterol", "stable", rng.uniform(190, 240), 2)
+    creat = plant_series(rng, "Creatinine", "stable", rng.uniform(0.7, 1.2), 2)
+
+    state0 = {"Metformin": 1, "Atorvastatin": 1}
+    state4 = {"Metformin": 1, "Atorvastatin": 2}
+    prescriptions = [(d0, state0), (d4, state4)]
+
+    _lab_report(b, d0, {"HbA1c": hba1c[0], "LDL": ldl[0], "Total Cholesterol": chol[0]})
+    _write_prescription(b, d0, state0)
+    _combined(b, rng, d1, {"HbA1c": hba1c[1], "Creatinine": creat[0]}, state0, [0, 3, 1])
+    _lab_report(b, d2, {"HbA1c": hba1c[2], "LDL": ldl[1], "Total Cholesterol": chol[1]})
+
+    admission = next_weekday(d2 + timedelta(days=rng.randint(5, 12)))
+    info, _ = plan_stay(b, rng, 1, admission, prescriptions, VISIT_SYMPTOMS)
+
+    visit = b.doc("visit_note", d3)
+    visit.pending.append(_visit_event(rng, d3, "Specialist Consultation"))
+    _add_visit_symptoms(rng, visit, d3, [0, 1, 0])
+    _combined(b, rng, d4, {"HbA1c": hba1c[3], "LDL": ldl[2], "Creatinine": creat[1]},
+              state4, [0, 3, 1])
+
+    tags = _base_tags()
+    tags["primary_lab"] = "HbA1c"
+    tags["trend"] = {"HbA1c": "decreasing", "LDL": "decreasing",
+                     "Total Cholesterol": "stable", "Creatinine": "stable"}
+    tags["dose_changes"].append({"medication": "Atorvastatin", "date": d4.isoformat(),
+                                 "from": MEDS["Atorvastatin"].doses[1],
+                                 "to": MEDS["Atorvastatin"].doses[2]})
+    tags["hospital_stays"].append(info)
     return tags
 
 
@@ -377,15 +648,17 @@ _PLANNERS = {
     "improving_chronic": _plan_chronic,
     "worsening_chronic": _plan_chronic,
     "stable": _plan_chronic,
+    "contradiction": _plan_contradiction,
+    "missing_information": _plan_missing,
+    "duplicate_upload": _plan_duplicate,
+    "acute_episode": _plan_acute,
+    "multi_document": _plan_multi,
 }
 
 
 def plan_patient(n: int, seed: int = DEFAULT_SEED) -> PatientPlan:
     arch = archetype_for(n)
-    planner = _PLANNERS.get(arch.key)
-    if planner is None:
-        raise NotImplementedError(f"planner for {arch.key!r} arrives in piece 2b")
     rng = _rng(seed, n)
     builder = _Builder(n)
-    tags = planner(builder, rng, arch.key)
+    tags = _PLANNERS[arch.key](builder, rng, arch.key)
     return builder.finalise(arch.key, tags)
