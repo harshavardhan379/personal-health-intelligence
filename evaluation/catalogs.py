@@ -190,8 +190,12 @@ class NoiseProfile:
     layout_shares: dict = field(
         default_factory=lambda: {"key_value": 0.50, "table": 0.25, "prose": 0.25}
     )
-    # 10/01/2026 is excluded on purpose: ambiguous (day/month vs month/day).
-    date_styles: tuple = ("iso", "day_mon_year", "month_day_year")
+    # 10/01/2026 is excluded on purpose: ambiguous (day/month vs month/day). The SHARES are
+    # an assumption (the spec listed the styles but not how often each is used): ISO, the
+    # only style the current extractors read, is as common as the other two together.
+    date_style_shares: dict = field(
+        default_factory=lambda: {"iso": 0.50, "day_mon_year": 0.25, "month_day_year": 0.25}
+    )
     two_page_share: float = 0.15
     # Share of PATIENTS whose documents have no header date at all. NOT in the approved
     # list of rates: an assumption made while writing this file, to be confirmed.
@@ -203,6 +207,14 @@ class NoiseProfile:
     unit_omitted: float = 0.05
     dose_omitted: float = 0.05
     name_variant: float = 0.10
+
+    @property
+    def date_omission_rate(self) -> float:
+        """A date can be missing from a line for two reasons the spec lists separately
+        (10 percent 'omitted, header kept' and 3 percent 'no date anywhere'). They are one
+        draw here; which outcome it becomes depends on whether the document has a header
+        date to fall back on (dataset spec, decision 18)."""
+        return self.date_omitted_from_line + self.undated
 
 
 NOISE = NoiseProfile()

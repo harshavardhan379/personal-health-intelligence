@@ -27,6 +27,7 @@ ruff check .              # Python lint
 cd apps/web && npm run lint   # TypeScript lint
 pytest                    # unit tests (pure logic; DB-backed tests need `docker compose up` first)
 pytest tests/safety       # safety regression suite: run on EVERY change to AI, retrieval or safety code
+python -m evaluation.generate   # (re)build the PersonalHealthBench dataset; then `python -m evaluation.dataset verify`
 ```
 
 ## Pre-commit

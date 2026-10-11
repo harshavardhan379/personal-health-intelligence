@@ -27,7 +27,8 @@ LLM calls, real bugs found and fixed through live testing, not just "it imports.
 
 - **Repo:** `harshavardhan379/personal-health-intelligence` on GitHub, branch `main`.
 - **Linear:** team `YGH`, project "Personal Health Intelligence App" — https://linear.app/harshavardhan-p/team/YGH
-- **Milestones M0 (partially), M1 through M13: Done.** M14 (Evaluation & PersonalHealthBench) is next.
+- **Milestones M0 (partially), M1 through M13: Done.** M14 (Evaluation & PersonalHealthBench) is
+  IN PROGRESS: YGH-63 (framework) and YGH-64 (generator) are done; YGH-65 to YGH-72 remain.
 - **Latest commit:** see `git log` (M12 landed as `2c5447f`, followed by a live-testing fix commit). Run `git log --oneline | cat` to get the real current state — this
   number is stale the moment new work lands.
 - **126 original Linear issues + 11 M11b (fine-tuning) issues added mid-project = 137 total.**
@@ -260,6 +261,25 @@ directives / dose instructions / false reassurance. `VerifiedAnswer` gained `saf
 - A live check of the five brief queries ("Do I have cancer?" etc.) confirmed all are refused with
   no model call, while ordinary records questions are still answered.
 
+### M14 — Evaluation & PersonalHealthBench (in progress)
+- **YGH-63** `docs/06_EVALUATION_FRAMEWORK.md` v0.2: what is measured, against what, and how
+  each number is scored. Key rules: 30 dev / 20 locked-test patients; no system grades itself
+  (the benchmark never calls `services/verification` or `services/safety` to score them);
+  dates carry a precision (day/month/year/none) and undated events are their own group;
+  scoring contracts return counts, aggregators return rates with Wilson intervals.
+- **YGH-64** the synthetic patient generator, `evaluation/`, designed with the owner one
+  decision at a time (`benchmarks/personal_health_bench/README.md`, decisions 1-18): templates
+  plus a seeded random generator (no LLM), 8 archetypes, 247 documents, 615 ground-truth
+  events, noisy documents for every patient. `python -m evaluation.generate` then
+  `python -m evaluation.dataset verify`; output is byte-identical for a seed and is NOT
+  committed. 1,100+ tests, recomputed independently of the generator; mutation checks confirm
+  they fail when the generator is broken.
+- **Finding to carry forward:** on this dataset the real extraction pipeline recovers about
+  20-24 percent of the facts (precision 100 percent): the regex placeholder against realistic
+  noise. Expect low extraction scores in the benchmark; that is the framework's point.
+- **Next:** YGH-65 ground-truth dataset packaging, YGH-66 questions (written against the
+  per-patient `tags`), YGH-67 runner (`python -m evaluation.run`), baselines YGH-68 to 70.
+
 ### Session continuity
 `eb7c1d1` — this file was first created, then is being rewritten right now into the version
 you're reading, to be exhaustive rather than a summary.
@@ -281,6 +301,9 @@ A separate seeded demo account exists if `database/seeds/seed.py` has been run:
 ---
 
 ## 5. How to run everything, from zero
+
+*(Benchmark data: `python -m evaluation.generate` builds it, and `python -m evaluation.dataset
+verify` checks it; see `benchmarks/personal_health_bench/README.md`.)*
 
 ```bash
 cd personal-health-intelligence
@@ -539,6 +562,6 @@ Do this, in order:
 
 ---
 
-*Last updated after M13 completion. An out-of-date handover is worse
+*Last updated mid-M14, after YGH-64. An out-of-date handover is worse
 than none — keep it honest or delete the stale parts rather than let them mislead the next
 session.*

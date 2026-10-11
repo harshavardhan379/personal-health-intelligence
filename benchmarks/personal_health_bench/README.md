@@ -4,7 +4,7 @@ Design record for YGH-64 (synthetic patient generator). The metrics live in
 `docs/06_EVALUATION_FRAMEWORK.md`; this file says what the data contains and how it is
 produced. **All patients are fictional. No real patient data is ever used.**
 
-Status: DESIGN, version 0.1. Items under "Still to decide" are open.
+Status: IMPLEMENTED (generator v0.1.0, dataset v1). Items under "Still to decide" are open.
 
 ## Where things live
 
@@ -280,6 +280,67 @@ and is regenerated on demand. Consequences the generator must therefore guarante
 Risk accepted with this choice: a silent generator change would silently change the
 benchmark. Mitigation to decide separately (see "Still to decide").
 
+## Generating and checking the dataset
+
+```bash
+python -m evaluation.generate            # writes benchmarks/personal_health_bench/data/v1 (not in git)
+python -m evaluation.generate --force    # replace an existing generated dataset
+python -m evaluation.dataset verify      # recompute every hash against manifest.json
+```
+
+Under a second, 50 patients, 247 documents (6 re-uploads), 615 ground-truth events, about
+2 MB. The same seed gives byte-identical output (checked by tests), so the manifest's root
+hash identifies exactly which data a result was measured on. Default seed 2026.
+
+Code map: `catalogs.py` (vocabulary and rates) -> `planner.py` (what is true and when) ->
+`render.py` (what the documents say, with degradation) -> `writer.py` (files, PDFs,
+manifest) -> `generate.py` / `dataset.py` (commands).
+
+## Rendering and degradation choices (decision 18)
+
+Made while implementing the renderer, following the spec; recorded for review. Items marked
+ASSUMPTION were not in an approved list.
+
+- **Layouts.** `key_value`: `Name: value unit (ref range) date`, `Rx: ...`, `Encounter: ...`,
+  `Symptom: ...`: exactly the lines the current extractors read. `table`: pipe-separated rows
+  under a section heading and a column row; a blank cell is `-`. `prose`: one sentence per
+  fact. Each fact's source quote is its whole line, row or sentence.
+- **Date styles.** ISO `2026-04-10`, `10 Apr 2026`, `April 10, 2026`; month-only prints
+  `2026-04`, `Apr 2026`, `April 2026`. ASSUMPTION: shares 50 / 25 / 25 (ISO, the only style the
+  current extractors read, as common as the other two together). Year-only dates are never
+  generated.
+- **Header date.** A patient-level flag: ASSUMPTION 15 percent of patients have no header date
+  in any document (10 of 50 in the default dataset); everyone else's documents all have one.
+  The label depends on the document type (Report date, Date prescribed, Visit date,
+  Discharge date).
+- **Missing dates.** The approved 10 percent "omitted, header kept" and 3 percent "no date
+  anywhere" are one draw of 13 percent. If the document has a header date AND the fact's own
+  date equals it, the omitted date is recoverable and the truth keeps it (degradation
+  `date_omitted_from_line`). Otherwise (no header, or a line such as a hospital admission
+  that the header does not date) the documents no longer say when, so the truth records the
+  event as undated (`undated`, precision `none`). Measured: 12.8 percent omitted in all, 2.9
+  percent undated. Month-only (5 percent) is a separate, mutually exclusive outcome.
+- **Units, doses, names.** Unit omitted (5 percent of labs) and dose omitted (5 percent of
+  medications) leave the truth's value intact. A name variant (10 percent of labs and
+  medications) prints a catalog alias (for example `Hb A1c`, a brand name); the truth keeps the
+  canonical name.
+- **Repeats.** A carried-forward line is rendered with the same degradation decisions as the
+  fact it repeats; a re-uploaded document is a byte-for-byte copy of its original's text and
+  is placed right after it in upload order.
+- **Pages.** 15 percent of documents are split onto two pages (a "(continued)" line starts
+  page 2), but only if they have at least two body lines, so 10 percent are two-page in
+  practice.
+- **Files.** Neutral names `dNN.pdf` / `dNN.txt` (no type or date). PDFs: Helvetica 9, ASCII,
+  single spaces, one drawn line per text line (a line that would not fit is an error, never a
+  wrap, so a quote can always be found verbatim), no compression, ReportLab `invariant=1`.
+- **Document wording.** Each type has a title with the keywords the document classifier
+  looks for; a facility line (the encounter's facility if there is one) and `Patient ID: pNNN`.
+
+**Measured effect on the current extractors** (descriptive; nothing was tuned on it): the real
+pipeline recovers about 20 percent of ground-truth facts on the development split and 24
+percent on the test split, with 100 percent precision (what it extracts is always right).
+Every clean line (`key_value`, ISO date, nothing degraded) is found: 123 of 123.
+
 ## What the generator outputs
 
 Per patient: ground-truth events (type, date, `date_precision`, data); the documents, as
@@ -290,8 +351,9 @@ question dataset (YGH-66) is written against these tags.
 
 ## Still to decide
 
-- Time span and spacing of dates; calendar range.
-- How to detect a silent generator change now that the data is not committed (one option:
-  commit only the small `manifest.json`, so a regenerated dataset can be compared to the
-  expected root hash).
-- How the prose and table layouts are worded.
+- How to detect a silent generator change now that the data is not committed. The manifest
+  already fingerprints a generated dataset; one option is to commit only the small
+  `manifest.json` so a regenerated dataset can be compared to the expected root hash.
+- A few lab lines carrying an earlier collection date than their report (needs a rate).
+- Value contradictions between lab reports (the approved document mix has no two reports on
+  one date, so only dose contradictions are generated).

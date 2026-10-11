@@ -92,7 +92,9 @@ def test_approved_noise_rates():
     assert (NOISE.date_omitted_from_line, NOISE.month_only, NOISE.undated) == (0.10, 0.05, 0.03)
     assert (NOISE.unit_omitted, NOISE.dose_omitted, NOISE.name_variant) == (0.05, 0.05, 0.10)
     assert sum(NOISE.layout_shares.values()) == pytest.approx(1.0)
-    assert "10/01/2026" not in NOISE.date_styles  # ambiguous day/month, excluded on purpose
+    assert sum(NOISE.date_style_shares.values()) == pytest.approx(1.0)
+    assert set(NOISE.date_style_shares) == {"iso", "day_mon_year", "month_day_year"}
+    assert NOISE.date_omission_rate == pytest.approx(0.13)
 
 
 # --- aliases ---------------------------------------------------------------------------
