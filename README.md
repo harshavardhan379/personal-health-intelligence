@@ -40,7 +40,7 @@ services/reasoning/       AI assistant / answer generation
 services/verification/    Claim and evidence verification
 services/safety/          Safety classifier and response policy
 packages/schemas/         Shared schemas
-packages/evaluation/      Evaluation framework
+evaluation/               Evaluation framework and benchmark runner
 packages/observability/   Logging and tracing helpers
 database/                 Migrations and seed data
 tests/                    unit, integration, evaluation, safety

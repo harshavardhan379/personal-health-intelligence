@@ -45,3 +45,6 @@ report.html
 
 # Docker
 docker-compose.override.yml
+
+# PersonalHealthBench generated dataset: regenerated on demand, not committed
+benchmarks/personal_health_bench/data/

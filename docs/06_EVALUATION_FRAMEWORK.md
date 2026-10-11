@@ -4,7 +4,11 @@ Deliverable for YGH-63 (M14-T01). Defines what is measured, against what, and ho
 number is computed, **before** any data is generated or any system is run, so that
 metrics cannot be chosen after seeing results.
 
-Status: DRAFT for review, sections 1 to 9 complete. Version 0.1.
+Status: DRAFT for review, sections 1 to 9 complete. **Version 0.2.**
+
+Changelog: v0.1 first full draft. v0.2 adds date precision and undated events (decision 7),
+a name alias table (decision 8) and the document-degradation profile (decision 9), after the
+generator design showed that real reports omit or blur dates, units and doses.
 
 ## Decisions log
 
@@ -16,6 +20,9 @@ Status: DRAFT for review, sections 1 to 9 complete. Version 0.1.
 | 4 | Headline answer-correctness score | Strict (every expected fact present, no forbidden fact); partial credit also reported | A half-right answer should not look decent: a user acting on a wrong date is harmed. |
 | 5 | Retrieval K | K=3 and K=5, headline K=5 | Most questions need 1 to 3 events; K=8 is just "everything retrieved". |
 | 6 | Abstention detection | Explicit `abstained` flag on every `SystemAnswer`; the scorer trusts it | Phrase matching mis-scores systems that decline in different words. The flag's origin differs by system (section 8), which is a stated limitation. |
+| 7 | Date precision | Ground-truth dates carry a precision: `day`, `month`, `year` or `none` (undated). Dates are compared at the coarser of the two precisions; undated events match on type and key only and are reported as their own group | Real reports omit or blur dates. Scoring a missing date as a wrong event would conflate "could not find the fact" with "found the fact, lacked a date". |
+| 8 | Name aliases | Key fields are compared after normalising through a dataset-defined alias table (for example `Hb A1c`, `HBA1C`, `A1c` all mean `HbA1c`) | Added while drafting v0.2: without it a correct extraction of a variant spelling would be scored as an error. |
+| 9 | Document degradation | The noise profile (layouts, date styles, per-event omission rates) is fixed in the dataset spec, `benchmarks/personal_health_bench/README.md`, and versioned with the data | Rates are approved: 10% date omitted from the line (header kept), 5% month-only, 3% no date anywhere, 5% unit omitted, 5% dose omitted, 10% name variant. They may be tuned on the development set only. |
 
 ## 1. Purpose and principles
 
@@ -81,17 +88,26 @@ them, and the difference is reported as the cost of extraction errors. Timeline 
 **Reference:** that patient's ground-truth events (the facts the generator wrote into the
 documents).
 
-Documents are noisy for all 50 patients (decision 2). The noise profile is defined with the
-generator (YGH-64) and is part of the dataset version. Because the extractors are regex
+Documents are noisy for all 50 patients (decision 2). The noise profile (decision 9) is
+defined in the dataset spec and is part of the dataset version. Because the extractors are regex
 placeholders, **low scores here are expected and are a finding, not a failure of the
 benchmark.** They measure how far the placeholder is from real extraction.
 
 ### 3.1 Match rule
 
 An extracted event *matches* a ground-truth event if all three hold:
-`event_type` is equal, `event_date` is equal, and the *key field* is equal after
-case-folding and trimming. The key field is `test_name` for a lab, `medication` for a
-medication, `encounter_type` for an encounter, `symptom` for a symptom.
+
+1. `event_type` is equal.
+2. **Dates agree at the coarser precision** (decision 7). Each date has a precision of `day`,
+   `month`, `year` or `none`. Two dated events agree if they are equal after truncating
+   both to the less precise of the two (a truth of "April 2026" agrees with any extracted
+   date in April 2026). If the truth is `none` (undated), condition 2 is waived; the match
+   then rests on type and key alone, and the pair is counted in the *undated* group (3.5).
+   A truth that has a date never matches an extraction with no date.
+3. The *key field* is equal after trimming, case-folding and **alias normalisation**
+   (decision 8). The key field is `test_name` for a lab, `medication` for a medication,
+   `encounter_type` for an encounter, `symptom` for a symptom. The alias table ships with
+   the dataset and is the same for every system.
 
 Each ground-truth event can be matched by at most one extracted event, and vice versa
 (one-to-one). A second extraction of the same fact is therefore a false positive, which is
@@ -119,17 +135,34 @@ that never works.
 Computed over **matched pairs only**, so one missed event is not double-counted as a
 wrong field.
 
-- **date accuracy:** by construction 1.0 for matched pairs (date is in the match rule).
-  Reported instead as *date recall*: of ground-truth events, the fraction for which any
-  extracted event of the same type and key field has the correct date. This catches
-  extractions that found the fact but assigned it the wrong date.
+- **date accuracy:** by construction 1.0 for matched dated pairs (date is in the match
+  rule). Reported instead as *date recall*: of **dated** ground-truth events, the fraction
+  for which any extracted event of the same type and key field has an agreeing date (3.1).
+  This catches extractions that found the fact but assigned it the wrong date.
+- **invented-date rate:** among undated ground-truth events that were matched, the fraction
+  where the extraction nonetheless carries a date. The document contains no date for these,
+  so any date was made up (or taken from somewhere other than the document). Lower is better.
 - **numeric accuracy:** among matched labs, the fraction whose `value` equals the truth
   exactly (floats compared after rounding to the precision shown in the document).
 - **unit accuracy:** among matched labs, the fraction whose `unit` string equals the truth.
 - **dose accuracy:** among matched medications, the fraction whose `dose` equals the truth
   (added because a wrong dose is the most dangerous extraction error).
 
-### 3.4 What this does not measure
+### 3.4 Degraded fields and the undated group
+
+Documents omit or blur fields on purpose (decision 9). For a ground-truth fact whose unit,
+dose or date is missing from the document, the **truth keeps the real value** and the
+document simply lacks it, so a system that cannot recover it is scored as having missed it.
+That is the point: it measures the distance between a placeholder extractor and real reports.
+
+### 3.5 Undated events
+
+The current pipeline cannot store an undated event (`HealthEvent.event_date` is required and
+the extractors drop facts with no date). Undated ground-truth events are therefore expected
+to be false negatives for EXTRACTED mode and are reported as their own group, never mixed
+silently into the overall recall. This is a known product gap, listed in section 9.
+
+### 3.6 What this does not measure
 
 - Extraction from real scans, photographs or handwriting.
 - Whether the human review step would catch the errors. The benchmark either skips review
@@ -165,9 +198,11 @@ for a patient, in EXTRACTED mode. **Reference:** the patient's ground-truth time
 
 - **Event accuracy:** F1 over timeline entries, using the extraction match rule (3.1). This
   is extraction F1 *after* review-gating and deduplication.
-- **Temporal ordering accuracy:** among all pairs of matched events with different dates,
-  the fraction the timeline orders correctly. Events with the same date are excluded (their
-  relative order is not defined). Undefined if a patient has fewer than two dated events.
+- **Temporal ordering accuracy:** among all pairs of matched events whose date ranges do
+  not overlap, the fraction the timeline orders correctly. A `month`-precision event
+  overlaps every event in that month and a `year`-precision event every event in that year,
+  so those pairs, same-date pairs and every undated event are excluded (their relative order
+  is not defined). Undefined if a patient has fewer than two comparable events.
 - **Duplicate detection:** the generator deliberately injects duplicates (the same report
   uploaded twice, the same lab repeated in two documents). Two numbers:
   - *duplicate removal rate* = injected duplicates removed / injected duplicates;
@@ -183,6 +218,12 @@ question record: `expected_facts`, `forbidden_facts`, `gold_evidence_ids`, and `
 An **expected fact** is an atomic value the answer must state (for example `6.5`,
 `2026-04-10`, `decreasing`), written as a list of accepted spellings. A **forbidden fact** is
 a plausible wrong statement (for example the old value `7.2` presented as current).
+
+A question about a fact whose **date is undated or only month- or year-precise** is scored
+against what the record actually supports: asking "when was X?" of an undated event is
+`answerable = false` for the date (any specific date is a forbidden fact), and for a
+month-precise event the expected fact is the month, so a system that states a full day has
+invented precision and is marked wrong.
 
 **Principle: no system grades itself.** Scoring uses only the question record and the
 patient's ground truth. It never calls `services/verification` or `services/safety`, because
@@ -252,10 +293,14 @@ denominator.
 ```python
 Mode = Literal["ORACLE", "EXTRACTED"]
 
+DatePrecision = Literal["day", "month", "year", "none"]
+
 @dataclass(frozen=True)
-class Event:                      # same shape as a confirmed HealthEvent
+class Event:                      # same shape as a confirmed HealthEvent, plus undated support
     event_type: str               # lab | medication | encounter | symptom
-    event_date: date
+    event_date: Optional[date]    # None when date_precision == "none"; first day of the
+                                  # month / year when the precision is month / year
+    date_precision: DatePrecision
     data: dict                    # key field: test_name | medication | encounter_type | symptom
 
 @dataclass
@@ -311,6 +356,9 @@ version, metric-definition version, model name, seed and git commit.
   wide; the benchmark can show large differences, not small ones.
 - **Extraction is a regex placeholder.** Even with noisy documents it covers only a few
   layouts, so extraction scores measure the placeholder, not extraction in general.
+- **Undated events cannot be stored by the current system** (`event_date` is required), so
+  they are guaranteed misses in EXTRACTED mode. This is a product gap the benchmark
+  exposes, not a scoring error.
 - **Heuristic checkers.** Expected-fact matching, claim splitting and the independent safety
   pattern lists can mis-score; hence the human audit, and failure cases are published.
 - **Asymmetric `abstained` flag** (section 8) and one model, one provider, one run per
