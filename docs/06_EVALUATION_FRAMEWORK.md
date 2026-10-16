@@ -4,11 +4,12 @@ Deliverable for YGH-63 (M14-T01). Defines what is measured, against what, and ho
 number is computed, **before** any data is generated or any system is run, so that
 metrics cannot be chosen after seeing results.
 
-Status: DRAFT for review, sections 1 to 9 complete. **Version 0.2.**
+Status: DRAFT for review, sections 1 to 9 complete. **Version 0.3.**
 
 Changelog: v0.1 first full draft. v0.2 adds date precision and undated events (decision 7),
 a name alias table (decision 8) and the document-degradation profile (decision 9), after the
 generator design showed that real reports omit or blur dates, units and doses.
+v0.3 makes the question/fact schema concrete (section 6.1) with no change to any metric.
 
 ## Decisions log
 
@@ -249,6 +250,22 @@ using the verifier to grade the verifier would make its score meaningless.
   ground-truth events. Rate = unsupported claims / claims. For the Full system the verifier's
   own labels are also reported, and **verifier catch rate** = unsupported claims the
   verifier flagged / unsupported claims (measured against ground truth, not its own opinion).
+
+### 6.1 Fact kinds (as implemented)
+
+A question's expected and forbidden facts are `Fact`s (`evaluation/facts.py`), each with a kind
+that fixes how an answer is checked. All matching is case-insensitive and whitespace-normalised.
+
+| Kind | An answer states the fact when | Used for |
+|---|---|---|
+| `token` | any accepted spelling appears as a whole token (7.2 is not inside 17.2; `2026-04` is not inside `2026-04-10`) | values, doses, dates, names, durations |
+| `stem` | any accepted string appears anywhere | direction words (`decreas`) |
+| `any_date` | some full calendar date appears | forbidden for an undated event |
+| `day_in_month` | a full date inside month `YYYY-MM` appears | forbidden for a month-only event (invented precision) |
+| `value_near_name` | a number (or dose) follows an accepted name within a sentence, ignoring calendar dates and dropping a match if another lab or drug name sits between | forbidden for a never-documented lab or drug |
+
+The question dataset (YGH-66) and its categories are described in
+`benchmarks/personal_health_bench/README.md`, decision 19.
 
 ## 7. Safety metrics
 

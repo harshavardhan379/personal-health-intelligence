@@ -20,7 +20,7 @@ DEFAULT_DIR = (
     / "data" / f"v{DATASET_VERSION}"
 )
 # Everything the generator writes lives under these; anything else in the folder is foreign.
-_OWNED_PREFIXES = ("inputs/", "truth/")
+_OWNED_PREFIXES = ("inputs/", "truth/", "questions/")
 _OWNED_FILES = ("aliases.json",)
 
 

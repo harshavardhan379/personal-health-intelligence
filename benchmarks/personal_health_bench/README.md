@@ -4,7 +4,7 @@ Design record for YGH-64 (synthetic patient generator). The metrics live in
 `docs/06_EVALUATION_FRAMEWORK.md`; this file says what the data contains and how it is
 produced. **All patients are fictional. No real patient data is ever used.**
 
-Status: IMPLEMENTED (generator v0.1.0, dataset v1). Items under "Still to decide" are open.
+Status: IMPLEMENTED (generator v0.1.0, dataset v1, question set v1). Items under "Still to decide" are open.
 
 ## Where things live
 
@@ -288,13 +288,17 @@ python -m evaluation.generate --force    # replace an existing generated dataset
 python -m evaluation.dataset verify      # recompute every hash against manifest.json
 ```
 
-Under a second, 50 patients, 247 documents (6 re-uploads), 615 ground-truth events, about
-2 MB. The same seed gives byte-identical output (checked by tests), so the manifest's root
+Under a few seconds, 50 patients, 247 documents (6 re-uploads), 615 ground-truth events,
+632 QA and 150 safety questions, about 2 MB.
+
+On Windows the generated folders can carry the ReadOnly attribute, which makes plain `rmdir`
+fail; `--force` clears it (a regression test covers this). The same seed gives byte-identical output (checked by tests), so the manifest's root
 hash identifies exactly which data a result was measured on. Default seed 2026.
 
 Code map: `catalogs.py` (vocabulary and rates) -> `planner.py` (what is true and when) ->
-`render.py` (what the documents say, with degradation) -> `writer.py` (files, PDFs,
-manifest) -> `generate.py` / `dataset.py` (commands).
+`render.py` (what the documents say, with degradation) -> `questions.py` + `facts.py` (what is
+asked, and how an answer is checked) -> `writer.py` (files, PDFs, manifest) -> `generate.py` /
+`dataset.py` (commands).
 
 ## Rendering and degradation choices (decision 18)
 
@@ -340,6 +344,58 @@ ASSUMPTION were not in an approved list.
 pipeline recovers about 20 percent of ground-truth facts on the development split and 24
 percent on the test split, with 100 percent precision (what it extracts is always right).
 Every clean line (`key_value`, ISO date, nothing degraded) is found: 123 of 123.
+
+## The question set (decision 19, YGH-66)
+
+Approach A: templates over the ground truth. `evaluation/questions.py` reads ONE patient's
+`truth/` file (never `inputs/`, never a system's output) and writes `questions/pNNN.json`
+with two lists, `qa` and `safety`. Questions inherit their patient's split. Question set
+version 1: **632 QA questions** (7 to 18 per patient, 12.6 on average) and **150 safety
+questions**.
+
+| Category | Questions | Templates (what is asked) |
+|---|---|---|
+| retrieval | 179 | a lab value on a date; a dose on a date; the most recent value |
+| temporal | 165 | when a drug / symptom was first documented; when a dose changed; admission and discharge dates; length of a stay; length of a drug course |
+| comparison | 55 | how a lab changed between first and latest; how a dose changed |
+| multi_document | 39 | every medication on record; every value of a lab; "how many results for that date" (must not double-count a duplicate upload) |
+| trend | 76 | the planted direction of the primary lab; a stable secondary lab |
+| evidence | 50 | a value plus "which record shows it" (`requires_citation`) |
+| missing_information | 34 | a lab or drug never documented; a lab with no reading on a date; the date of an event whose date is gone |
+| uncertainty | 23 | an event known only to the month; a dose the document did not print |
+| contradiction | 11 | the same-day dose conflict (asked with and without the date) |
+
+Rules that keep the expected answers honest:
+
+- **Routed by date precision.** A "when" question about a day-dated event expects the date; about a
+  month-only event it is an `uncertainty` question that expects the month and forbids a made-up
+  day; about an undated event it is `missing_information` (`answerable = false`, forbids any date).
+- **`answerable = false`** means the documents do not support an answer: expected facts empty,
+  gold evidence empty (so it is excluded from retrieval metrics, per the framework), and at least
+  one forbidden fact so a confident wrong answer can fail.
+- **Forbidden facts are sparse** (wrong trend direction, a made-up day or value, a duplicate counted
+  twice, a missing item given a value). Words like "worse" are never forbidden: "not worse" is a
+  correct statement.
+- **Facts have a kind** (`evaluation/facts.py`): `token` (whole-token match, so 7.2 is not inside
+  17.2), `stem`, `any_date`, `day_in_month`, `value_near_name`. The same matcher is used to
+  self-check the questions and, later, to score answers.
+- **Gold evidence** is the truth event(s) holding the answer; an evidence question needs the
+  answer to cite it.
+- Every question is self-checked in tests: an "oracle answer" built from its expected facts must
+  pass, no forbidden fact may match that oracle, and each forbidden fact must be detected when a
+  system commits it.
+
+**Safety set.** 100 `must_not_answer` questions (20 each of diagnosis, prescription, treatment,
+emergency, high-risk), 2 per patient, rotated so every category is balanced, plus 50
+`must_answer` questions (1 per patient). The wording is new and disjoint from `tests/safety`
+(checked by a test), because the safety rules were built and tuned on that set.
+**Protocol: the safety classifier has not been run on these questions.** Run it on the
+development split to look for bugs; do NOT run it on the test split until the final evaluation.
+
+**Known limitations.** Only 6 patients are contradiction cases, so the contradiction category has
+11 questions (4 in the test split) and wide intervals; the same goes for uncertainty and missing
+information. Trend, dose and date matching is heuristic (framework section 9). The question
+text is templated, so it is more regular than real user questions.
 
 ## What the generator outputs
 

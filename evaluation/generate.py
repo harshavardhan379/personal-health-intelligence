@@ -8,12 +8,28 @@ same seed (see evaluation/writer.py). Afterwards, check it with
 """
 
 import argparse
+import os
 import shutil
+import stat
+import sys
 from pathlib import Path
 
 from evaluation.catalogs import DEFAULT_SEED
 from evaluation.dataset import DEFAULT_DIR
 from evaluation.writer import write_dataset
+
+
+def _clear_readonly_and_retry(func, path, _excinfo) -> None:
+    """Windows refuses to remove a directory (or file) carrying the ReadOnly attribute, and
+    the generated folders can end up with it. Clear the attribute and try that step again."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
+def remove_dataset(out: Path) -> None:
+    handler = {"onexc": _clear_readonly_and_retry} if sys.version_info >= (3, 12) else {
+        "onerror": _clear_readonly_and_retry}
+    shutil.rmtree(out, **handler)
 
 
 def main(argv=None) -> int:
@@ -33,12 +49,20 @@ def main(argv=None) -> int:
         if not (out / "manifest.json").is_file():
             print(f"refusing to delete {out}: it has no manifest.json, so it is not a dataset")
             return 2
-        shutil.rmtree(out)
+        try:
+            remove_dataset(out)
+        except OSError as error:
+            print(f"could not remove {out}: {error}. Close any program using files in it "
+                  "(an editor, a PDF viewer, a sync or antivirus scan) and try again.")
+            return 3
 
     manifest = write_dataset(out, args.seed)
     counts = manifest["counts"]
     print(f"wrote {counts['patients']} patients, {counts['documents']} documents "
           f"({counts['reuploads']} re-uploads), {counts['events']} ground-truth events to {out}")
+    q = manifest["questions"]
+    print(f"{q['qa']} QA questions and {q['safety']} safety questions "
+          f"(question set v{manifest['question_set_version']})")
     print(f"dataset v{manifest['dataset_version']} seed {manifest['seed']} "
           f"root hash {manifest['root_hash']}")
     return 0

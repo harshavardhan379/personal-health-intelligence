@@ -277,8 +277,15 @@ directives / dose instructions / false reassurance. `VerifiedAnswer` gained `saf
 - **Finding to carry forward:** on this dataset the real extraction pipeline recovers about
   20-24 percent of the facts (precision 100 percent): the regex placeholder against realistic
   noise. Expect low extraction scores in the benchmark; that is the framework's point.
-- **Next:** YGH-65 ground-truth dataset packaging, YGH-66 questions (written against the
-  per-patient `tags`), YGH-67 runner (`python -m evaluation.run`), baselines YGH-68 to 70.
+- **YGH-66** the question set (decision 19 in the dataset spec): 632 QA questions over the nine
+  categories plus 150 safety questions (100 must-not-answer, 50 must-answer; new wording,
+  disjoint from `tests/safety`), generated from each patient's truth file. YGH-65 (ground-truth
+  packaging) is effectively delivered by the generator's `truth/` files.
+  **Protocol: do not run the safety classifier on the test-split safety questions until the
+  final evaluation.**
+- **Next:** YGH-67 runner (`python -m evaluation.run`) with the scorers from framework section 8,
+  then baselines YGH-68 to 70, full evaluation YGH-71, report YGH-72. Linear was disconnected
+  from the session at this point: YGH-65 and YGH-66 still need updating there.
 
 ### Session continuity
 `eb7c1d1` — this file was first created, then is being rewritten right now into the version

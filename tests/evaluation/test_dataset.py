@@ -5,8 +5,11 @@ The dataset is generated ONCE per test module (about a second) into a temp direc
 """
 
 import json
+import os
 import re
 import shutil
+import stat
+import sys
 from collections import Counter
 
 import pytest
@@ -56,7 +59,7 @@ def test_manifest_describes_the_whole_dataset(ds, truths):
 
 def test_every_patient_has_inputs_and_truth_and_nothing_else_is_written(ds, truths):
     top = {p.name for p in ds.iterdir()}
-    assert top == {"manifest.json", "aliases.json", "inputs", "truth"}
+    assert top == {"manifest.json", "aliases.json", "inputs", "truth", "questions"}
     for t in truths:
         folder = ds / "inputs" / t["patient_id"]
         names = {p.name for p in folder.iterdir()}
@@ -200,6 +203,19 @@ def test_generate_refuses_to_overwrite_without_force_and_never_deletes_foreign_f
     (foreign / "notes.txt").write_text("keep me", encoding="utf-8")
     assert generate.main(["--out", str(foreign), "--force"]) == 2
     assert (foreign / "notes.txt").read_text() == "keep me"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the ReadOnly directory attribute is Windows")
+def test_force_replaces_a_dataset_whose_folders_are_marked_read_only(tmp_path):
+    """Found on a real Windows machine: the generated folders carried the ReadOnly attribute,
+    os.rmdir refused them, and --force died halfway, leaving a half-deleted dataset."""
+    out = tmp_path / "data"
+    assert generate.main(["--out", str(out)]) == 0
+    folders = [p for p in out.rglob("*") if p.is_dir()] + [out]
+    for folder in folders:
+        os.chmod(folder, stat.S_IREAD)  # sets the ReadOnly attribute
+    assert generate.main(["--out", str(out), "--force"]) == 0
+    assert dataset.verify_dataset(out) == []
 
 
 def test_verify_command_reports_failure(tmp_path):
