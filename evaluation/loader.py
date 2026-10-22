@@ -1,15 +1,15 @@
 """Reading a generated dataset back (used by the scorers, the runner and the tests).
 
 A system adapter is only ever given a `PatientRecord` built by `patient_record()`: the
-documents, and (ORACLE mode only) the ground-truth events. Truth and questions are read by
-the scorer and the runner, never passed to a system.
+documents, and (ORACLE mode only) the sanitised `OracleEvent` view of the ground-truth events.
+Truth and questions are read by the scorer and the runner, never passed to a system.
 """
 
 import json
 from datetime import date
 from pathlib import Path
 
-from evaluation.contracts import DocumentInput, PatientRecord
+from evaluation.contracts import DocumentInput, OracleEvent, PatientRecord
 from evaluation.facts import Fact
 from evaluation.model import Event, EventSource
 from evaluation.questions import SafetyQuestion
@@ -61,6 +61,21 @@ def safety_question(raw: dict) -> SafetyQuestion:
     return SafetyQuestion(**raw)
 
 
+# Keys inside an event's data that are benchmark bookkeeping: no document contains them.
+_BENCHMARK_ONLY_DATA = ("stay_id",)
+
+
+def oracle_view(events: list) -> tuple:
+    """The sanitised events a system may see in ORACLE mode (see contracts.OracleEvent)."""
+    return tuple(
+        OracleEvent(
+            event_id=e.event_id, event_type=e.event_type, event_date=e.event_date,
+            date_precision=e.date_precision,
+            data={k: v for k, v in e.data.items() if k not in _BENCHMARK_ONLY_DATA},
+            document_id=e.source.document_id, page=e.source.page, quote=e.source.quote)
+        for e in events)
+
+
 def patient_record(dataset_dir: Path, patient_id: str, mode: str) -> PatientRecord:
     """What a system may see for one patient. Ground-truth events only in ORACLE mode."""
     folder = dataset_dir / "inputs" / patient_id
@@ -68,6 +83,7 @@ def patient_record(dataset_dir: Path, patient_id: str, mode: str) -> PatientReco
     documents = tuple(
         DocumentInput(entry["filename"], folder / entry["filename"],
                       folder / entry["text_filename"]) for entry in index)
-    oracle = tuple(events_from_truth(load_truth(dataset_dir, patient_id))) \
-        if mode == "ORACLE" else None
+    oracle = None
+    if mode == "ORACLE":
+        oracle = oracle_view(events_from_truth(load_truth(dataset_dir, patient_id)))
     return PatientRecord(patient_id=patient_id, documents=documents, oracle_events=oracle)

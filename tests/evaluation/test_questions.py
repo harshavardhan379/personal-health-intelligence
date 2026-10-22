@@ -68,6 +68,15 @@ def test_every_question_passes_its_own_oracle_answer(corpus):
         assert not any(fact_matches(f, oracle) for f in forbidden), (q["question_id"], oracle)
 
 
+def test_a_question_never_contains_its_own_answer(corpus):
+    """Found by running an echo system: the first trend questions listed the options ('better,
+    worse, or the same'), so repeating the question satisfied them. No question's own text may
+    satisfy any of its expected facts, or a system that parrots the question scores."""
+    leaking = [q["question_id"] for _, q in _all_qa(corpus) for f in _facts(q["expected_facts"])
+               if fact_matches(f, q["text"])]
+    assert leaking == [], leaking[:5]
+
+
 def test_every_forbidden_fact_is_detected_when_a_system_commits_it(corpus):
     for _, q in _all_qa(corpus):
         for fact in _facts(q["forbidden_facts"]):

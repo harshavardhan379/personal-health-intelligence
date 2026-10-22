@@ -33,6 +33,25 @@ class PredictedEvent:
 
 
 @dataclass(frozen=True)
+class OracleEvent:
+    """A confirmed event as a system sees it in ORACLE mode: what the product stores for a
+    confirmed health event (type, date, data) and its provenance (document, page, quote), plus
+    the id it would cite. Deliberately NOT the ground-truth record: no degradation list, no
+    conflict links, no duplicate link, and no `stay_id` (benchmark bookkeeping that is not in
+    any document and that the product's extractors never produce). Handing those over would
+    turn ORACLE mode from 'a perfect reviewer confirmed the facts' into an answer key."""
+
+    event_id: str
+    event_type: str
+    event_date: Optional[date]
+    date_precision: str
+    data: dict
+    document_id: str
+    page: int
+    quote: str
+
+
+@dataclass(frozen=True)
 class AskedQuestion:
     question_id: str
     text: str
@@ -56,7 +75,7 @@ class DocumentInput:
 class PatientRecord:
     patient_id: str
     documents: tuple  # DocumentInput, in upload order
-    oracle_events: Optional[tuple] = None  # ground-truth events; ORACLE mode only
+    oracle_events: Optional[tuple] = None  # OracleEvent; ORACLE mode only
 
 
 @dataclass
@@ -82,7 +101,20 @@ class SystemAnswer:
 
 
 class System(Protocol):
+    """A system under test. The runner reads these attributes to decide how to run and score it.
+
+    name         unique, used in every result file
+    model_name   the language model it uses ("none" if it uses none); recorded in results
+    modes        ("ORACLE", "EXTRACTED") for a system that reads structured events, so it runs
+                 twice; ("NONE",) for one that does not (Direct LLM, Naive RAG), so it runs once
+    cites_events True if its claims can cite ground-truth event ids; if False, evidence
+                 precision and recall are reported as not applicable rather than as 0
+    """
+
     name: str
+    model_name: str
+    modes: tuple
+    cites_events: bool
 
     def answer(self, patient: PatientRecord, question: AskedQuestion, mode: str) -> SystemAnswer:
         ...

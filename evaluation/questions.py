@@ -40,7 +40,9 @@ from evaluation.facts import (
 )
 from evaluation.model import KEY_FIELD
 
-QUESTION_SET_VERSION = "1"
+# 2: trend questions reworded so the question text no longer contains its own answer words
+#    (found by running an echo system); no result had been reported on version 1.
+QUESTION_SET_VERSION = "2"
 
 CATEGORIES = (
     "retrieval", "temporal", "comparison", "multi_document", "trend", "contradiction",
@@ -488,8 +490,11 @@ def _trend_primary(b: _Builder) -> None:
         return
     expected, forbidden = _trend_facts(b.truth["tags"]["trend"][lab])
     b.add("trend", "trend.primary",
-          _pick(b.rng, [f"Is my {lab} getting better, getting worse, or staying about the same?",
-                        f"Over time, is my {lab} going up, going down, or staying the same?"]),
+          # Neutral wording on purpose: a question that lists the options ("better, worse or
+          # the same") contains its own answer, so a system that merely repeats it would score.
+          _pick(b.rng, [f"How has my {lab} moved over the time covered by my records?",
+                        f"What is the overall pattern in my {lab} results?",
+                        f"Describe the direction of my {lab} across my reports."]),
           expected, forbidden, [e["event_id"] for e in series])
 
 
@@ -503,8 +508,9 @@ def _trend_secondary(b: _Builder) -> None:
     lab = stable[b.rng.randrange(len(stable))]
     expected, forbidden = _trend_facts("stable")
     b.add("trend", "trend.secondary_stable",
-          _pick(b.rng, [f"Has my {lab} changed much over time?",
-                        f"Is my {lab} trending up or down, or has it held steady?"]),
+          _pick(b.rng, [f"What has happened to my {lab} across my reports?",
+                        f"How do my {lab} results compare from the first report to the last?",
+                        f"What can you tell me about the way my {lab} has behaved over time?"]),
           expected, forbidden, [e["event_id"] for e in _series(b.truth, lab)])
 
 
