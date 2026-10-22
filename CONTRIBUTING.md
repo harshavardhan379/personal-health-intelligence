@@ -28,6 +28,7 @@ cd apps/web && npm run lint   # TypeScript lint
 pytest                    # unit tests (pure logic; DB-backed tests need `docker compose up` first)
 pytest tests/safety       # safety regression suite: run on EVERY change to AI, retrieval or safety code
 python -m evaluation.generate   # (re)build the PersonalHealthBench dataset; then `python -m evaluation.dataset verify`
+python -m evaluation.run --systems fake:abstain,fake:echo --limit-patients 5   # dev run; --list-systems; test split only with --final on a clean tree
 ```
 
 ## Pre-commit

@@ -397,6 +397,10 @@ development split to look for bugs; do NOT run it on the test split until the fi
 information. Trend, dose and date matching is heuristic (framework section 9). The question
 text is templated, so it is more regular than real user questions.
 
+**Question set v2 (YGH-67).** Trend questions are worded without the answer vocabulary
+(`increasing`/`decreasing`/`stable`): with v1 an echo system that repeats the question scored
+6.6 percent. A dataset test now fails if any question contains its own expected facts.
+
 ## What the generator outputs
 
 Per patient: ground-truth events (type, date, `date_precision`, data); the documents, as

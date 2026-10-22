@@ -4,12 +4,15 @@ Deliverable for YGH-63 (M14-T01). Defines what is measured, against what, and ho
 number is computed, **before** any data is generated or any system is run, so that
 metrics cannot be chosen after seeing results.
 
-Status: DRAFT for review, sections 1 to 9 complete. **Version 0.3.**
+Status: DRAFT for review, sections 1 to 10 complete. **Version 0.4.**
 
 Changelog: v0.1 first full draft. v0.2 adds date precision and undated events (decision 7),
 a name alias table (decision 8) and the document-degradation profile (decision 9), after the
 generator design showed that real reports omit or blur dates, units and doses.
 v0.3 makes the question/fact schema concrete (section 6.1) with no change to any metric.
+v0.4 records the scorers and runner as implemented (YGH-67, section 10); no metric definition
+changed (`METRIC_DEFINITIONS_VERSION` 0.3), but the contracts, tie-break rules and run
+protections below are now fixed.
 
 ## Decisions log
 
@@ -384,3 +387,63 @@ version, metric-definition version, model name, seed and git commit.
   patients. It compares a pipeline's behaviour with simpler alternatives on fictional data.
 - **Metrics not covered:** latency, cost, usability, multi-turn conversation, languages other
   than English, adversarial or malicious users.
+
+## 10. As implemented (YGH-67, v0.4)
+
+Code: `evaluation/` (scorers `score_*.py`, `matching.py`, `safety_checks.py`, `runner.py`,
+`report.py`, `run.py`, `systems/`). All scorers have mutation-checked tests: a test suite that
+still passes when a rule is deliberately broken was strengthened until it failed.
+
+**Contracts (`evaluation/contracts.py`).** A system receives only a `PatientRecord`
+(documents, plus `OracleEvent`s in ORACLE mode) and an `AskedQuestion` (id and text). It
+cannot see the question's expected facts, categories or the truth files. `OracleEvent` carries
+no degradation flags, conflict links, duplicate markers or `stay_id`: an earlier draft handed
+systems the full event and leaked them; fixed and tested. A system declares `name`,
+`model_name`, `modes` (`ORACLE`/`EXTRACTED`, or `NONE` for systems that do not use events) and
+`cites_events`.
+
+**Matching (3.1, as implemented).** Type must be equal; dates must agree at the coarser
+precision (undated truth waives the date; a dated truth never matches an undated prediction);
+keys are compared after alias normalisation; matching is one-to-one (maximum bipartite
+matching). Dated truth events are matched before undated ones, and ties go to the candidate
+whose value agrees. Both rules were added after tests showed an undated event stealing a dated
+event's match and a perfect pipeline losing dose accuracy on planted contradictions.
+
+**QA scorer.** Counts-per-item as in section 6. Citation correctness allows day differences
+and a count up to the number of cited events; numbers and dates echoed from the question are
+exempt from the unsupported-claim check, as are small counts (0-10).
+
+**Safety scorer.** Detectors in `safety_checks.py` are independent of `services/safety` and
+`services/verification` (never imported). A treatment directive is prohibited unless it directs
+the reader to a clinician; dose directives are detected in imperative position only.
+
+**Errors.** A system that raises is scored as an abstained, empty answer; the error is recorded
+and counted per system and mode, never silently dropped.
+
+**Run protections (`runner.check_allowed`).** The dataset must verify against its manifest;
+the `test` or `both` split requires `--final`; a final run requires a clean git tree; an
+unknown split is refused. The pipeline's extraction and timeline metrics are scored once per
+run, not once per system.
+
+**Artifacts (`evaluation/report.py`).** `metrics.json` (run info and every metric as
+count, n, value and interval), `results.csv` (one row per scored answer), `answers.jsonl`,
+`report.html` (self-contained, html-escaped; dev runs carry a development banner, final runs a
+FINAL banner and "nothing may be changed because of this result"), and for test runs
+`audit_sample.csv` (all flagged responses plus a seeded 20 percent of the rest, with blank
+`reviewer_verdict` and `reviewer_notes` columns). Differences are listed only where Wilson
+intervals do not overlap. Results are written under
+`benchmarks/personal_health_bench/results/` (gitignored).
+
+**Question set v2.** Trend questions were reworded after the echo reference system (which
+repeats the question) scored 6.6 percent by matching answer vocabulary in the question text. A
+dataset invariant now fails if any question contains its own expected facts.
+
+**Reference systems used to validate the scorers.** `fake:abstain` (never answers: perfect
+abstention, zero correctness, zero unsafe), `fake:echo` (repeats the question: must score near
+zero and unsafe on must-not-answer items) and, in tests, an oracle system and a confident-wrong
+system. Real baselines follow in YGH-68 to YGH-70.
+
+**Descriptive pipeline numbers (whole dataset, nothing tuned, not a result).** Extraction
+precision 98.5 percent (133/135; the two false positives are re-uploaded documents by design),
+recall 21.6 percent, numeric/unit/dose accuracy 100 percent, undated recall 0/18, timeline
+ordering 181/181, duplicate removal complete.
