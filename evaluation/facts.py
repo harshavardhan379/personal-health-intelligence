@@ -176,11 +176,14 @@ def find_dates(text: str) -> list:
     return [d for d in found if d is not None]
 
 
-def _strip_dates(text: str) -> str:
+def strip_dates(text: str) -> str:
     """Blank out dates (full and month-level) so their digits are not read as values."""
     for pattern in (_ISO, _DMY, _MDY, _MONTH_YEAR, _ISO_MONTH):
         text = pattern.sub(" ", text)
     return text
+
+
+_strip_dates = strip_dates
 
 
 # --- matching ------------------------------------------------------------------------------------
