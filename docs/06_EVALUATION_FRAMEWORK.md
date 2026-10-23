@@ -4,7 +4,7 @@ Deliverable for YGH-63 (M14-T01). Defines what is measured, against what, and ho
 number is computed, **before** any data is generated or any system is run, so that
 metrics cannot be chosen after seeing results.
 
-Status: DRAFT for review, sections 1 to 10 complete. **Version 0.6.**
+Status: DRAFT for review, sections 1 to 10 complete. **Version 0.7.**
 
 Changelog: v0.1 first full draft. v0.2 adds date precision and undated events (decision 7),
 a name alias table (decision 8) and the document-degradation profile (decision 9), after the
@@ -15,6 +15,8 @@ changed (`METRIC_DEFINITIONS_VERSION` 0.3), but the contracts, tie-break rules a
 protections below are now fixed.
 v0.5 records how the Direct LLM baseline is built (section 11); no metric changed.
 v0.6 records the Naive RAG baseline (section 12) and its main limitation on this dataset.
+v0.7 adds the Structured retrieval baseline and the rule for scoring citations and retrieval in
+EXTRACTED mode (section 13), which section 4 and 6 did not define.
 
 ## Decisions log
 
@@ -502,3 +504,38 @@ Code: `evaluation/systems/naive_rag.py` and `chunking.py` (registered name `naiv
   nothing was left out).
 - **Observed on 2 dev patients (descriptive only).** Strict correctness 20/30; 25 answers,
   11 exact refusals, no near misses.
+
+## 13. Structured retrieval baseline and EXTRACTED-mode citations (YGH-70, v0.7)
+
+Code: `evaluation/systems/structured.py` (registered name `structured`, modes ORACLE and
+EXTRACTED) and `evaluation/citations.py`. Each choice was made by the owner, one at a time.
+
+- **What it does.** Embeds the patient's events (same model, search and K as Naive RAG), shows
+  the top 5 numbered to the model, which must answer only from them and cite by number. Same
+  LangGraph shape as Naive RAG. No intent routing, verification or safety layer. Compared with
+  Naive RAG the only variable is structured events instead of raw text chunks.
+- **Event text.** One fixed line with every field: `2023-05-17 · lab · HbA1c 9.8 % (reference
+  4.0-5.6)`; month-only and undated events read `2023-05` and `date unknown`. Written in the
+  evaluation code, not the product's short labels, which drop frequency, reference ranges and
+  reasons.
+- **Citations.** Sentences carrying `[n]` become claims tied to those events, so evidence
+  precision/recall and citation correctness apply (`cites_events` is true). Markers are removed
+  from the answer text. Numbers naming no event shown are counted (`invalid_citations`) and never
+  become evidence. Refusal is the same exact sentence as the other baselines.
+- **ORACLE mode.** The events are the patient's ground-truth events; ids are the truth ids.
+- **EXTRACTED mode (new rule).** The events are what the real pipeline extracts, cited under ids
+  of the system's own (`x1`, `x2`, ...). After the system answers, the runner maps each of those
+  events to the ground-truth event it matches, using the extraction matching rule of section 3.1
+  (one-to-one), and rewrites the ids in the evidence and claims. An extracted event with no
+  truth match becomes `unmatched:<id>` and an id the system invented becomes `unknown:<id>`; neither
+  can ever be gold, so each counts as a wrong citation. The system never sees the truth.
+  Retrieval and citation scores therefore exist in both modes, and in EXTRACTED mode they are
+  capped by extraction recall (about 22 percent), which is the cost of extraction made visible.
+- **Run info.** `diagnostics` holds `events_indexed_oracle`, `events_indexed_extracted`,
+  `exact_refusals`, `near_misses`, `answered`, `answers_with_a_citation`, `invalid_citations`
+  and `whole_record_given` (questions where the patient had at most 5 events, so nothing was left
+  out).
+- **Observed on 2 dev patients (descriptive only).** ORACLE: strict correctness 23/30, citation
+  correctness 21/22, evidence precision 29/30, Recall@5 50/50, over-abstention 7/30. EXTRACTED:
+  strict 0/30, Recall@5 7/50, over-abstention 26/30. The pipeline extracted 7 of 35 true events
+  for these patients, so the model correctly says the records do not contain the answer.

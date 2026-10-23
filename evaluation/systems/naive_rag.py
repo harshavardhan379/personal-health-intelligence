@@ -73,6 +73,13 @@ def ollama_embed(base_url: str, model: str, timeout: float) -> Callable[[list], 
     return embed
 
 
+def normalised(vectors) -> np.ndarray:
+    """Rows scaled to unit length, so a dot product is a cosine similarity."""
+    matrix = np.asarray(vectors, dtype=float)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    return matrix / np.where(norms == 0, 1.0, norms)
+
+
 def chunks_of(patient) -> list:
     chunks = []
     for document in patient.documents:
@@ -118,17 +125,11 @@ class NaiveRAGSystem:
     def _chunks_and_vectors(self, patient):
         if patient.patient_id not in self._index:
             chunks = chunks_of(patient)
-            vectors = self._normalised(self._embed([DOCUMENT_PREFIX + c for c in chunks])) \
+            vectors = normalised(self._embed([DOCUMENT_PREFIX + c for c in chunks])) \
                 if chunks else np.zeros((0, 1))
             self._index[patient.patient_id] = (chunks, vectors)
             self.diagnostics["chunks_indexed"] += len(chunks)
         return self._index[patient.patient_id]
-
-    @staticmethod
-    def _normalised(vectors) -> np.ndarray:
-        matrix = np.asarray(vectors, dtype=float)
-        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-        return matrix / np.where(norms == 0, 1.0, norms)
 
     def answer(self, patient, question, mode) -> SystemAnswer:
         return self._graph.invoke({"patient": patient, "question": question})["result"]
@@ -137,7 +138,7 @@ class NaiveRAGSystem:
         chunks, vectors = self._chunks_and_vectors(state["patient"])
         if not chunks:
             return {"top": []}
-        query = self._normalised(self._embed([QUERY_PREFIX + state["question"].text]))[0]
+        query = normalised(self._embed([QUERY_PREFIX + state["question"].text]))[0]
         order = np.argsort(-(vectors @ query), kind="stable")[:TOP_K]
         if len(chunks) <= TOP_K:  # nothing was left out: search had no work to do
             self.diagnostics["whole_record_given"] += 1

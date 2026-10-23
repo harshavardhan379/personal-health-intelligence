@@ -28,7 +28,7 @@ LLM calls, real bugs found and fixed through live testing, not just "it imports.
 - **Repo:** `harshavardhan379/personal-health-intelligence` on GitHub, branch `main`.
 - **Linear:** team `YGH`, project "Personal Health Intelligence App" — https://linear.app/harshavardhan-p/team/YGH
 - **Milestones M0 (partially), M1 through M13: Done.** M14 (Evaluation & PersonalHealthBench) is
-  IN PROGRESS: YGH-63 to YGH-69 (framework, generator, truth, questions, runner, direct-LLM and naive-RAG baselines) are done; YGH-70 to YGH-72 remain.
+  IN PROGRESS: YGH-63 to YGH-70 (framework, generator, truth, questions, runner and the three baselines) are done; YGH-71 and YGH-72 remain.
 - **Latest commit:** see `git log` (M12 landed as `2c5447f`, followed by a live-testing fix commit). Run `git log --oneline | cat` to get the real current state — this
   number is stale the moment new work lands.
 - **126 original Linear issues + 11 M11b (fine-tuning) issues added mid-project = 137 total.**
@@ -299,11 +299,15 @@ directives / dose instructions / false reassurance. `VerifiedAnswer` gained `saf
   the whole record for 30 of 50 patients; documented as a limitation, parameters not changed.
   `langgraph` and its dependencies were added to `requirements.txt` (pip on this machine needs
   `pip --isolated` because a user pip config points at an unreachable extra index).
-- **Next:** baseline YGH-70 (structured retrieval) is a registered name in
-  `evaluation/systems/REGISTRY` waiting for an implementation; then full
-  evaluation YGH-71 and the report `docs/07_BENCHMARK_REPORT.md` (YGH-72). Protocols: do not
-  run the safety classifier on the test split before the final evaluation; change nothing
-  because of a test-set result.
+- **YGH-70** `structured` baseline (framework section 13): top-5 events by embedding search,
+  one fixed line per event with every field, numbered citations, ORACLE and EXTRACTED modes.
+  New scoring rule: in EXTRACTED mode the runner maps the system's own event ids to ground-truth
+  ids after answering (`evaluation/citations.py`), so retrieval and citation scores exist in both
+  modes. A run of both modes on 2 patients takes about 6 minutes.
+- **Next:** YGH-71 full-system evaluation (the product's own pipeline as a `full` system, with
+  intent routing, verification and the output guard; its safety classifier must not be run on the
+  test split before the final evaluation), then the report `docs/07_BENCHMARK_REPORT.md` (YGH-72).
+  Protocols: change nothing because of a test-set result.
 
 ### Session continuity
 `eb7c1d1` — this file was first created, then is being rewritten right now into the version
@@ -587,6 +591,6 @@ Do this, in order:
 
 ---
 
-*Last updated mid-M14, after YGH-69. An out-of-date handover is worse
+*Last updated mid-M14, after YGH-70. An out-of-date handover is worse
 than none — keep it honest or delete the stale parts rather than let them mislead the next
 session.*

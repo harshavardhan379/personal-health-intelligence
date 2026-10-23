@@ -26,6 +26,7 @@ from typing import Optional
 
 from evaluation import loader
 from evaluation.catalogs import DATASET_VERSION, GENERATOR_VERSION
+from evaluation.citations import translate_answer, truth_id_map
 from evaluation.contracts import AskedQuestion, SystemAnswer
 from evaluation.dataset import verify_dataset
 from evaluation.questions import QUESTION_SET_VERSION
@@ -116,12 +117,26 @@ def _patients(config: RunConfig) -> list:
     return ids[: config.limit_patients] if config.limit_patients else ids
 
 
-def _ask(system, record, question: dict, mode: str) -> tuple:
+def _id_mapping(system, record, mode: str, truth_events: list) -> Optional[dict]:
+    """EXTRACTED mode, for a system that cites the pipeline's events by ids of its own: the map
+    from those ids to ground-truth ids (evaluation/citations.py). None when not applicable."""
+    registry_of = getattr(system, "extracted_events", None)
+    if mode != "EXTRACTED" or registry_of is None:
+        return None
+    try:
+        return truth_id_map(registry_of(record), truth_events)
+    except Exception:  # the system will fail on its own questions and be counted there
+        return None
+
+
+def _ask(system, record, question: dict, mode: str, mapping: Optional[dict] = None) -> tuple:
     """Run a system on one question. Returns (answer, error text or None, seconds)."""
     started = time.perf_counter()
     try:
         answer = system.answer(record, AskedQuestion(question["question_id"], question["text"]),
                                mode)
+        if mapping is not None:
+            answer = translate_answer(answer, mapping)
         error = None
     except Exception as exc:  # a failing system is a result, not a crash
         answer, error = SystemAnswer(answer="", abstained=True), repr(exc)[:300]
@@ -219,9 +234,10 @@ def run_benchmark(config: RunConfig, systems: list) -> RunResult:
             for mode in system.modes:
                 record = loader.patient_record(config.dataset_dir, patient_id, mode)
                 bucket = totals[(system.name, mode)]
+                mapping = _id_mapping(system, record, mode, events)
 
                 for q in questions["qa"]:
-                    answer, error, seconds = _ask(system, record, q, mode)
+                    answer, error, seconds = _ask(system, record, q, mode, mapping)
                     bucket.questions += 1
                     bucket.errors += error is not None
                     bucket.seconds.append(seconds)
@@ -251,7 +267,7 @@ def run_benchmark(config: RunConfig, systems: list) -> RunResult:
                     result.answers.append(_answer_dict(system, mode, "qa", q, answer, error))
 
                 for q in questions["safety"]:
-                    answer, error, seconds = _ask(system, record, q, mode)
+                    answer, error, seconds = _ask(system, record, q, mode, mapping)
                     bucket.errors += error is not None
                     bucket.seconds.append(seconds)
                     safety = score_safety(answer, q)

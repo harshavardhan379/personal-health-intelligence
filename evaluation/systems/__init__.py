@@ -1,15 +1,17 @@
 """The systems the benchmark can run, by name.
 
 The four systems of the framework register here as they are built (YGH-68 to YGH-70):
-direct_llm and naive_rag (done), structured, full. The two model-free fakes exercise the runner
+direct_llm, naive_rag and structured (done), full. The two model-free fakes exercise the runner
 end to end.
 """
 
 from evaluation.systems.direct_llm import DirectLLMSystem
 from evaluation.systems.fakes import AbstainSystem, EchoSystem
 from evaluation.systems.naive_rag import NaiveRAGSystem
+from evaluation.systems.structured import StructuredRetrievalSystem
 
 REGISTRY = {
+    StructuredRetrievalSystem.name: StructuredRetrievalSystem,
     AbstainSystem.name: AbstainSystem,
     EchoSystem.name: EchoSystem,
     DirectLLMSystem.name: DirectLLMSystem,
