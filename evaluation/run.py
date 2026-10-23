@@ -85,6 +85,9 @@ def main(argv=None) -> int:
     out = args.out or RESULTS_ROOT / f"{stamp}-{args.split}{'-FINAL' if args.final else ''}"
     paths = write_results(result, out)
     print(_summary(result))
+    for name, info in sorted(result.run_info["systems"].items()):
+        if info.get("diagnostics"):
+            print(f"   {name} kept: {info['diagnostics']}")
     print(f"\n{len(result.rows)} scored answers; artifacts in {out}")
     for label, path in paths.items():
         print(f"  {label:<8} {path.name}")

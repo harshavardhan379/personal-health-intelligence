@@ -28,7 +28,7 @@ LLM calls, real bugs found and fixed through live testing, not just "it imports.
 - **Repo:** `harshavardhan379/personal-health-intelligence` on GitHub, branch `main`.
 - **Linear:** team `YGH`, project "Personal Health Intelligence App" — https://linear.app/harshavardhan-p/team/YGH
 - **Milestones M0 (partially), M1 through M13: Done.** M14 (Evaluation & PersonalHealthBench) is
-  IN PROGRESS: YGH-63 to YGH-67 (framework, generator, truth, questions, runner) are done; YGH-68 to YGH-72 remain.
+  IN PROGRESS: YGH-63 to YGH-68 (framework, generator, truth, questions, runner, direct-LLM baseline) are done; YGH-69 to YGH-72 remain.
 - **Latest commit:** see `git log` (M12 landed as `2c5447f`, followed by a live-testing fix commit). Run `git log --oneline | cat` to get the real current state — this
   number is stale the moment new work lands.
 - **126 original Linear issues + 11 M11b (fine-tuning) issues added mid-project = 137 total.**
@@ -290,7 +290,10 @@ directives / dose instructions / false reassurance. `VerifiedAnswer` gained `saf
   `--final` and a clean git tree. Validated with `fake:abstain` and `fake:echo`. Found and fixed
   along the way: an ORACLE-mode leak of benchmark-only fields to systems, question-set v1
   containing its own answers (now v2 with an invariant test), and several matching bugs.
-- **Next:** baselines YGH-68 (direct LLM), 69 (naive RAG), 70 (structured retrieval) are
+- **YGH-68** `direct_llm` baseline (framework section 11): question only, plain Ollama call,
+  exact refusal sentence sets `abstained`, near misses counted. Run it with
+  `python -m evaluation.run --systems direct_llm` (needs Ollama; about 2.5 s per question).
+- **Next:** baselines YGH-69 (naive RAG), 70 (structured retrieval) are
   registered names in `evaluation/systems/REGISTRY` waiting for implementations; then full
   evaluation YGH-71 and the report `docs/07_BENCHMARK_REPORT.md` (YGH-72). Protocols: do not
   run the safety classifier on the test split before the final evaluation; change nothing
@@ -578,6 +581,6 @@ Do this, in order:
 
 ---
 
-*Last updated mid-M14, after YGH-67. An out-of-date handover is worse
+*Last updated mid-M14, after YGH-68. An out-of-date handover is worse
 than none — keep it honest or delete the stale parts rather than let them mislead the next
 session.*

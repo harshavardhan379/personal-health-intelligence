@@ -287,6 +287,9 @@ def run_benchmark(config: RunConfig, systems: list) -> RunResult:
             "timeline": summarize_timeline(timeline),
         }
     result.metrics = to_jsonable(result.metrics)
+    for system in systems:  # counters a system keeps about its own behaviour (e.g. direct_llm)
+        if getattr(system, "diagnostics", None):
+            result.run_info["systems"][system.name]["diagnostics"] = dict(system.diagnostics)
 
     if config.split in ("test", "both"):
         result.audit_sample = select_audit_sample(
