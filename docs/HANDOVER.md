@@ -28,7 +28,7 @@ LLM calls, real bugs found and fixed through live testing, not just "it imports.
 - **Repo:** `harshavardhan379/personal-health-intelligence` on GitHub, branch `main`.
 - **Linear:** team `YGH`, project "Personal Health Intelligence App" — https://linear.app/harshavardhan-p/team/YGH
 - **Milestones M0 (partially), M1 through M13: Done.** M14 (Evaluation & PersonalHealthBench) is
-  IN PROGRESS: YGH-63 to YGH-68 (framework, generator, truth, questions, runner, direct-LLM baseline) are done; YGH-69 to YGH-72 remain.
+  IN PROGRESS: YGH-63 to YGH-69 (framework, generator, truth, questions, runner, direct-LLM and naive-RAG baselines) are done; YGH-70 to YGH-72 remain.
 - **Latest commit:** see `git log` (M12 landed as `2c5447f`, followed by a live-testing fix commit). Run `git log --oneline | cat` to get the real current state — this
   number is stale the moment new work lands.
 - **126 original Linear issues + 11 M11b (fine-tuning) issues added mid-project = 137 total.**
@@ -293,8 +293,14 @@ directives / dose instructions / false reassurance. `VerifiedAnswer` gained `saf
 - **YGH-68** `direct_llm` baseline (framework section 11): question only, plain Ollama call,
   exact refusal sentence sets `abstained`, near misses counted. Run it with
   `python -m evaluation.run --systems direct_llm` (needs Ollama; about 2.5 s per question).
-- **Next:** baselines YGH-69 (naive RAG), 70 (structured retrieval) are
-  registered names in `evaluation/systems/REGISTRY` waiting for implementations; then full
+- **YGH-69** `naive_rag` baseline (framework section 12): `nomic-embed-text` embeddings via Ollama
+  (`ollama pull nomic-embed-text`), recursive chunks 500/50, top 5, LangGraph pipeline, exact
+  refusal sentence. **Finding:** records are short (median 5 chunks), so top-5 hands the model
+  the whole record for 30 of 50 patients; documented as a limitation, parameters not changed.
+  `langgraph` and its dependencies were added to `requirements.txt` (pip on this machine needs
+  `pip --isolated` because a user pip config points at an unreachable extra index).
+- **Next:** baseline YGH-70 (structured retrieval) is a registered name in
+  `evaluation/systems/REGISTRY` waiting for an implementation; then full
   evaluation YGH-71 and the report `docs/07_BENCHMARK_REPORT.md` (YGH-72). Protocols: do not
   run the safety classifier on the test split before the final evaluation; change nothing
   because of a test-set result.
@@ -581,6 +587,6 @@ Do this, in order:
 
 ---
 
-*Last updated mid-M14, after YGH-68. An out-of-date handover is worse
+*Last updated mid-M14, after YGH-69. An out-of-date handover is worse
 than none — keep it honest or delete the stale parts rather than let them mislead the next
 session.*

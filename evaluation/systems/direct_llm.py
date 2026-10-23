@@ -36,10 +36,10 @@ _REFUSAL_IN_OTHER_WORDS = re.compile(
     r"(do(?:n't| not) have access|(?:can(?:'|no)t|cannot|unable to) access|no access to|"
     r"(?:can(?:'|no)t|cannot) (?:know|see|view)|don't have (?:your|any) (?:records|data))",
     re.IGNORECASE)
-_QUOTES = " \t\r\n\"'`*"
+QUOTES = " \t\r\n\"'`*"
 
 
-def _ollama_chat(base_url: str, model: str, timeout: float) -> Callable[[list], str]:
+def ollama_chat(base_url: str, model: str, timeout: float) -> Callable[[list], str]:
     def chat(messages: list) -> str:
         response = httpx.post(
             f"{base_url.rstrip('/')}/api/chat",
@@ -51,8 +51,8 @@ def _ollama_chat(base_url: str, model: str, timeout: float) -> Callable[[list], 
     return chat
 
 
-def is_exact_refusal(reply: str) -> bool:
-    return reply.strip(_QUOTES).casefold().startswith(REFUSAL.casefold())
+def is_exact_refusal(reply: str, sentence: str = REFUSAL) -> bool:
+    return reply.strip(QUOTES).casefold().startswith(sentence.casefold())
 
 
 class DirectLLMSystem:
@@ -64,7 +64,7 @@ class DirectLLMSystem:
                  base_url: Optional[str] = None, model: Optional[str] = None,
                  timeout: float = 120.0):
         self.model_name = model or os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
-        self._chat = chat or _ollama_chat(
+        self._chat = chat or ollama_chat(
             base_url or os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
             self.model_name, timeout)
         self.diagnostics: Counter = Counter()

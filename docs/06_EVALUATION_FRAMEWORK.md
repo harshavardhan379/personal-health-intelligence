@@ -4,7 +4,7 @@ Deliverable for YGH-63 (M14-T01). Defines what is measured, against what, and ho
 number is computed, **before** any data is generated or any system is run, so that
 metrics cannot be chosen after seeing results.
 
-Status: DRAFT for review, sections 1 to 10 complete. **Version 0.5.**
+Status: DRAFT for review, sections 1 to 10 complete. **Version 0.6.**
 
 Changelog: v0.1 first full draft. v0.2 adds date precision and undated events (decision 7),
 a name alias table (decision 8) and the document-degradation profile (decision 9), after the
@@ -14,6 +14,7 @@ v0.4 records the scorers and runner as implemented (YGH-67, section 10); no metr
 changed (`METRIC_DEFINITIONS_VERSION` 0.3), but the contracts, tie-break rules and run
 protections below are now fixed.
 v0.5 records how the Direct LLM baseline is built (section 11); no metric changed.
+v0.6 records the Naive RAG baseline (section 12) and its main limitation on this dataset.
 
 ## Decisions log
 
@@ -380,6 +381,10 @@ version, metric-definition version, model name, seed and git commit.
 - **Undated events cannot be stored by the current system** (`event_date` is required), so
   they are guaranteed misses in EXTRACTED mode. This is a product gap the benchmark
   exposes, not a scoring error.
+- **Records are short, so Naive RAG sees most of them.** The median patient's text is about
+  1,100 characters (5 chunks of 500); with top-5 retrieval the model receives the whole record for
+  30 of 50 patients (section 12). Recall@5 is therefore near its ceiling by construction and Naive
+  RAG acts as a full-context baseline here. Real histories are longer.
 - **Heuristic checkers.** Expected-fact matching, claim splitting and the independent safety
   pattern lists can mis-score; hence the human audit, and failure cases are published.
 - **Asymmetric `abstained` flag** (section 8) and one model, one provider, one run per
@@ -470,3 +475,30 @@ Code: `evaluation/systems/direct_llm.py` (registered name `direct_llm`, mode `NO
   near miss, 1 guess. The near miss was an emergency question answered with "seek immediate
   medical attention" in the model's own words; it is scored unsafe because the flag is false.
   That is the cost of an explicit flag, kept as a stated limitation rather than adjusted away.
+
+## 12. Naive RAG baseline as implemented (YGH-69, v0.6)
+
+Code: `evaluation/systems/naive_rag.py` and `chunking.py` (registered name `naive_rag`, mode
+`NONE`). Each choice was made by the owner, one at a time, before any result was seen.
+
+- **Embeddings.** A real model through Ollama (`nomic-embed-text`, `ollama pull nomic-embed-text`),
+  not the product's placeholder hashing embedding (`services/retrieval/embeddings.py`), which
+  matches words rather than meaning and would make the baseline a strawman. The model's
+  `search_document:` / `search_query:` prefixes are used. Cosine similarity, in memory.
+- **Chunking.** Recursive character splitting, 500 characters, 50 overlap, separators blank
+  line, line break, sentence end, space, anywhere. Over the dataset's text layer of each
+  document (pages joined by a blank line). Fixed in advance and not tuned on results.
+- **Retrieval.** The patient's own chunks only, top 5, best first. These five are both the
+  prompt and the evidence the retrieval metrics score (a chunk is relevant when it contains a gold
+  event's source quote, section 4), so Recall@5 describes exactly what the model was given.
+- **Abstention.** The instruction says to answer only from the excerpts and otherwise to reply
+  with exactly "The records do not contain the answer to that question." Only that sentence sets
+  `abstained`; refusals in other words are answers, counted as `near_misses`.
+- **Orchestration.** A LangGraph graph (retrieve, then generate, then finalise; a record with no
+  text goes to refuse without a model call). The graph only orders steps. LangSmith tracing is
+  forced off in code and by a test: patient text goes only to the local Ollama server.
+- **Run info.** `diagnostics` holds `chunks_indexed`, `exact_refusals`, `near_misses`,
+  `answered` and `whole_record_given` (questions where the patient had at most 5 chunks, so
+  nothing was left out).
+- **Observed on 2 dev patients (descriptive only).** Strict correctness 20/30; 25 answers,
+  11 exact refusals, no near misses.
