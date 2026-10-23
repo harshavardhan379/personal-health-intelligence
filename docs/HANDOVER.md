@@ -28,7 +28,7 @@ LLM calls, real bugs found and fixed through live testing, not just "it imports.
 - **Repo:** `harshavardhan379/personal-health-intelligence` on GitHub, branch `main`.
 - **Linear:** team `YGH`, project "Personal Health Intelligence App" — https://linear.app/harshavardhan-p/team/YGH
 - **Milestones M0 (partially), M1 through M13: Done.** M14 (Evaluation & PersonalHealthBench) is
-  IN PROGRESS: YGH-63 to YGH-70 (framework, generator, truth, questions, runner and the three baselines) are done; YGH-71 and YGH-72 remain.
+  IN PROGRESS: YGH-63 to YGH-70 (framework, generator, truth, questions, runner and the three baselines) are done; YGH-71 (the full system and the comparison run) is built and awaiting the final test-split run; YGH-72 (report) remains.
 - **Latest commit:** see `git log` (M12 landed as `2c5447f`, followed by a live-testing fix commit). Run `git log --oneline | cat` to get the real current state — this
   number is stale the moment new work lands.
 - **126 original Linear issues + 11 M11b (fine-tuning) issues added mid-project = 137 total.**
@@ -304,10 +304,15 @@ directives / dose instructions / false reassurance. `VerifiedAnswer` gained `saf
   New scoring rule: in EXTRACTED mode the runner maps the system's own event ids to ground-truth
   ids after answering (`evaluation/citations.py`), so retrieval and citation scores exist in both
   modes. A run of both modes on 2 patients takes about 6 minutes.
-- **Next:** YGH-71 full-system evaluation (the product's own pipeline as a `full` system, with
-  intent routing, verification and the output guard; its safety classifier must not be run on the
-  test split before the final evaluation), then the report `docs/07_BENCHMARK_REPORT.md` (YGH-72).
-  Protocols: change nothing because of a test-set result.
+- **YGH-71** `full` system (framework section 14): the product's own pipeline run on benchmark
+  patients through a dedicated Postgres database `phi_bench` (name must end `_bench`; created on
+  first use; the product's `phi` database is never touched). Needs `docker compose up -d
+  postgres` and Ollama. `python -m evaluation.run --systems direct_llm,naive_rag,structured,full`
+  runs the four-way comparison on the dev split (about 3.5 hours with the local model).
+  **Protocol:** the reported numbers come from `--split test --final` on a clean git tree, once,
+  after the code is frozen; nothing may be changed because of a test-set result. The safety
+  classifier must not be run on the test split before that.
+- **Next:** the final test-split run, then the report `docs/07_BENCHMARK_REPORT.md` (YGH-72).
 
 ### Session continuity
 `eb7c1d1` — this file was first created, then is being rewritten right now into the version
@@ -591,6 +596,6 @@ Do this, in order:
 
 ---
 
-*Last updated mid-M14, after YGH-70. An out-of-date handover is worse
+*Last updated mid-M14, after YGH-71. An out-of-date handover is worse
 than none — keep it honest or delete the stale parts rather than let them mislead the next
 session.*

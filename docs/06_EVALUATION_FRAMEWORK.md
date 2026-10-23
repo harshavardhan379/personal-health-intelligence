@@ -4,7 +4,7 @@ Deliverable for YGH-63 (M14-T01). Defines what is measured, against what, and ho
 number is computed, **before** any data is generated or any system is run, so that
 metrics cannot be chosen after seeing results.
 
-Status: DRAFT for review, sections 1 to 10 complete. **Version 0.7.**
+Status: DRAFT for review, sections 1 to 10 complete. **Version 0.8.**
 
 Changelog: v0.1 first full draft. v0.2 adds date precision and undated events (decision 7),
 a name alias table (decision 8) and the document-degradation profile (decision 9), after the
@@ -17,6 +17,7 @@ v0.5 records how the Direct LLM baseline is built (section 11); no metric change
 v0.6 records the Naive RAG baseline (section 12) and its main limitation on this dataset.
 v0.7 adds the Structured retrieval baseline and the rule for scoring citations and retrieval in
 EXTRACTED mode (section 13), which section 4 and 6 did not define.
+v0.8 records how the Full system runs the product's own pipeline (section 14).
 
 ## Decisions log
 
@@ -387,6 +388,10 @@ version, metric-definition version, model name, seed and git commit.
   1,100 characters (5 chunks of 500); with top-5 retrieval the model receives the whole record for
   30 of 50 patients (section 12). Recall@5 is therefore near its ceiling by construction and Naive
   RAG acts as a full-context baseline here. Real histories are longer.
+- **The Full system keeps the product's own retrieval.** It uses the product's intent routing,
+  hybrid retrieval (up to 8 items, placeholder hashing embeddings) and JSON answer format, not the
+  real embeddings and top-5 search of the baselines (section 14). The comparison is therefore
+  "the product as it is" against "simple baselines", not a controlled ablation of one component.
 - **Heuristic checkers.** Expected-fact matching, claim splitting and the independent safety
   pattern lists can mis-score; hence the human audit, and failure cases are published.
 - **Asymmetric `abstained` flag** (section 8) and one model, one provider, one run per
@@ -539,3 +544,40 @@ EXTRACTED) and `evaluation/citations.py`. Each choice was made by the owner, one
   correctness 21/22, evidence precision 29/30, Recall@5 50/50, over-abstention 7/30. EXTRACTED:
   strict 0/30, Recall@5 7/50, over-abstention 26/30. The pipeline extracted 7 of 35 true events
   for these patients, so the model correctly says the records do not contain the answer.
+
+## 14. Full system as implemented (YGH-71, v0.8)
+
+Code: `evaluation/systems/full.py` (registered name `full`, modes ORACLE and EXTRACTED).
+
+- **It is the product.** Each patient's events are stored as confirmed health events (with
+  provenance and embeddings, through the product's own `sync_event_embedding`) and each question
+  goes through the product's functions in the product's order: safety check on the question,
+  intent classification, a fixed refusal if blocked, otherwise intent-routed hybrid retrieval,
+  the LLM, claim verification, then the output guard. `run_product_pipeline` repeats the five
+  lines of `generate_verified_answer` only because the benchmark also needs the retrieved
+  evidence list; a test checks the two return identical answers (allowed, blocked, guard-replaced
+  and too-short questions).
+- **Benchmark database.** Events go to a database whose name must end in `_bench`
+  (`BENCHMARK_DATABASE_URL`, default `phi_bench` on the docker-compose Postgres, created on first
+  use with the product's tables). Any other name is refused before anything is touched, so a run
+  cannot write into the product's own database. A patient's data is replaced, never accumulated.
+- **Modes.** ORACLE stores the ground-truth events; EXTRACTED stores what the real extraction
+  pipeline finds with its own page and quote as provenance. EXTRACTED events are cited under ids
+  of the system's own and mapped to the truth by the runner (section 13).
+- **Undated events are not stored.** `health_events.event_date` is required, so undated events
+  (18 of 615) cannot be loaded in either mode; they are counted in `events_not_storable`. A
+  product gap the benchmark exposes, not a scoring choice.
+- **`abstained`** follows the product's own logic: the safety layer blocked the question (before
+  or after generation: CLARIFY, ABSTAIN or REDIRECT_TO_PROFESSIONAL), or nothing was retrieved,
+  or the answer's only supported claims are verified "this is not in your records" claims.
+- **Claims and labels.** Each claim cites the benchmark ids of the evidence its citation numbers
+  point at; the verifier's per-claim labels and the safety action are passed through, which is
+  what the verifier catch rate and false-alarm rate (section 6) read.
+- **LLM outages are errors.** The product turns a provider failure into an apology answer; the
+  adapter raises instead, so the runner counts it as an error and does not score the apology as
+  an answer.
+- **Run info.** `diagnostics`: `events_stored_oracle`, `events_stored_extracted`,
+  `events_not_storable`, `blocked_by_safety`, `no_evidence`, `absence_abstentions`, `answered`.
+- **Observed on 1 dev patient (descriptive only).** ORACLE: strict 8/13, citation correctness
+  9/11, Recall@5 15/22, unsafe responses 0/2, appropriate abstention 2/2; EXTRACTED: strict 1/13
+  (the pipeline found 1 of 13 events). The safety layer blocked 12 of 32 questions.

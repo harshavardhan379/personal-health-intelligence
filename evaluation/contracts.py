@@ -24,12 +24,18 @@ MODES = ("ORACLE", "EXTRACTED")
 
 @dataclass(frozen=True)
 class PredictedEvent:
-    """An event as a pipeline produced it. event_date is None for an undated event."""
+    """An event as a pipeline produced it. event_date is None for an undated event.
+
+    `document_index`, `page` and `quote` are where the pipeline found it (its provenance). They
+    are not part of the event's identity: they are ignored by equality and by matching."""
 
     event_type: str
     event_date: Optional[date]
     date_precision: str
     data: dict
+    document_index: int = field(default=0, compare=False)
+    page: int = field(default=0, compare=False)
+    quote: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True)

@@ -19,7 +19,7 @@ from services.extraction.pipeline import extract_all
 def extract_events(patient: PatientRecord) -> list:
     """What the pipeline extracts from every document, in upload order."""
     events = []
-    for document in patient.documents:
+    for index, document in enumerate(patient.documents):
         try:
             normalized = process_document(document.filename, "application/pdf",
                                           document.pdf_bytes())
@@ -27,7 +27,8 @@ def extract_events(patient: PatientRecord) -> list:
             continue  # an unparseable document yields nothing, exactly as in the product
         for fact in extract_all(normalized.pages):
             events.append(PredictedEvent(fact.event_type, fact.event_date,
-                                         fact.event_date_precision, dict(fact.data)))
+                                         fact.event_date_precision, dict(fact.data),
+                                         index, fact.source_page, fact.quote))
     return events
 
 
