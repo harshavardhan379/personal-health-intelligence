@@ -4,7 +4,7 @@ Deliverable for YGH-63 (M14-T01). Defines what is measured, against what, and ho
 number is computed, **before** any data is generated or any system is run, so that
 metrics cannot be chosen after seeing results.
 
-Status: DRAFT for review, sections 1 to 10 complete. **Version 1.1.**
+Status: DRAFT for review, sections 1 to 10 complete. **Version 1.2.**
 
 Changelog: v0.1 first full draft. v0.2 adds date precision and undated events (decision 7),
 a name alias table (decision 8) and the document-degradation profile (decision 9), after the
@@ -681,3 +681,57 @@ Consequences: differences between systems of a few questions are noise and must 
 as findings; the benchmark's own steps (data, scoring) are exactly reproducible but model
 answers are not bit-for-bit; and a rescoring tool that rescores saved answers would let a scorer
 change be checked without re-running the models (not built).
+
+## 17. Final evaluation on the locked test split (v1.2)
+
+**The reported run.** `python -m evaluation.run --systems direct_llm,naive_rag,structured,full
+--split test --final --limit-patients 10`, once, from commit `fe63f2f` on a clean tree, metric
+definitions 0.5, question set v2, dataset root hash `51b12e7d...35d3`, `llama3.2:3b` through
+Ollama with `nomic-embed-text` embeddings for Naive RAG and Structured. It covers **10 of the 20
+locked test patients** (`p031` to `p040`, the first ten in id order; the other ten were not run),
+128 answerable-or-not QA questions and 30 safety questions per system and mode. Zero errors in
+every row. Nothing was changed because of this run. Artifacts: `benchmarks/personal_health_bench/
+results/test10-FINAL-fe63f2f/` (gitignored). Counts with 95 percent Wilson intervals.
+
+| | Direct LLM | Naive RAG | Structured (ORACLE) | Full (ORACLE) | Structured (EXTRACTED) | Full (EXTRACTED) |
+|---|---|---|---|---|---|---|
+| Strict correctness (n=119) | 0 (0-3%) | 75 = 63% (54-71) | 73 = 61% (52-70) | 61 = 51% (42-60) | 11 = 9% (5-16) | 10 = 8% (5-15) |
+| Over-abstention (n=119) | 118 (95-100%) | 25 = 21% (15-29) | 29 = 24% (18-33) | 45 = 38% (30-47) | 95 = 80% (72-86) | 85 = 71% (63-79) |
+| Recall@5 (n=175) | 0 | 175 = 100% (98-100) | 175 = 100% (98-100) | 83 = 47% (40-55) | 29 = 17% (12-23) | 22 = 13% (8-18) |
+| Citation correctness | n/a | n/a | 87/94 = 93% (85-96) | 71/93 = 76% (67-84) | 10/15 = 67% (42-85) | 18/46 = 39% (26-54) |
+| Unsafe responses (n=20) | 8 = 40% (22-61) | 8 = 40% (22-61) | 6 = 30% (15-52) | 0 = 0% (0-16) | 2 = 10% (3-30) | 0 = 0% (0-16) |
+| Appropriate abstention (n=20) | 12 = 60% | 8 = 40% | 10 = 50% | 20 = 100% (84-100) | 14 = 70% | 20 = 100% (84-100) |
+| Over-refusal of must-answer (n=10) | 10 = 100% | 1 = 10% | 2 = 20% | 1 = 10% | 7 = 70% | 7 = 70% |
+| Unsupported claims | 3/135 | 0/219 | 0/190 | 2/227 | 0/137 | 0/216 |
+
+The real extraction pipeline on these patients: precision 22/22, recall 22/129 (17 percent,
+12-24); timeline ordering 24/24.
+
+**What the intervals support** (differences between each system's primary mode that do not
+overlap, the framework rule):
+- Naive RAG, Structured and Full are all better than Direct LLM on strict correctness, retrieval,
+  and over-abstention. Direct LLM answers none of the questions about a patient it cannot see.
+- **Strict correctness does not separate Naive RAG (63%), Structured (61%) and Full (51%).** The
+  intervals overlap; with 10 patients the benchmark cannot tell these three apart on correctness.
+- Full over-abstains more than Naive RAG, and its retrieval (Recall@5 47%) and citation
+  correctness (76%) are below Structured (100% and 93%). Most of that is the product's safety
+  layer refusing ordinary questions before any retrieval (the dev sample: 31 percent of answerable
+  questions; reported as shipped, not changed).
+- Full gave no unsafe response (0/20, 0-16%) and is better than Direct LLM and Naive RAG on unsafe
+  responses (both 8/20), and better than all three others on appropriate abstention. It is not
+  separable from Structured on unsafe responses (6/20, 15-52).
+- Extraction is the bottleneck: every system's strict correctness falls from 51-63% with perfect
+  events (ORACLE) to 8-9% with the pipeline's events (EXTRACTED), because the pipeline recovers
+  17 percent of the facts.
+
+**What it does not support.** Rankings among Naive RAG, Structured and Full on correctness; any
+claim about real patients or real records; small differences (section 16 measured that the same
+systems differ by up to 5 of 122 questions between two identical runs); the direct baseline's
+safety numbers (it is told to refuse, so they are by construction, section 11). Naive RAG hands the
+model the whole record for most patients, so it is effectively a full-context baseline here
+(section 12).
+
+**Still to do for the report.** The human audit (section 7): `audit_sample.csv` lists all 210
+flagged responses plus a seeded 20 percent of the rest, with blank `reviewer_verdict` and
+`reviewer_notes` columns. Its disagreements with the automatic labels must be reported alongside
+these numbers.
