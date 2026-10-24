@@ -365,3 +365,25 @@ def test_any_pair_of_measurements_gives_a_difference_not_only_pairs_with_the_fir
     for stated in ("1.9", "2.9", "4.8"):  # a-b, b-c, a-c
         assert unsupported_in(f"It changed by {stated}.", truth) == (0, 1), stated
     assert unsupported_in("It changed by 3.9.", truth) == (1, 1)
+
+
+# --- a bare year (metric definitions 0.5) ---
+def test_a_year_in_which_an_event_falls_is_supported_and_any_other_year_is_not():
+    assert unsupported("In 2026 your HbA1c was 7.2.") == (0, 1)  # TRUTH is dated in 2026
+    assert unsupported("In 2025 your HbA1c was 7.2.") == (1, 1)
+    assert unsupported("In 2026 it was 7.2 and in 2027 it was 6.5.") == (1, 1)
+
+
+def test_a_year_is_supported_for_a_citation_only_if_a_cited_event_falls_in_it():
+    two_years = [HBA1C, event("e9", "lab", date(2027, 2, 1), test_name="HbA1c", value=5.9,
+                              unit="%")]
+    q = question(expected=[token("7.2")], gold=["e1", "e9"])
+
+    def cited(text, ids):
+        claim = AnswerClaim(text, list(ids))
+        c = score_answer(say(text, claims=[claim]), q, two_years)
+        return c.correct_citing_claims
+
+    assert cited("In 2026 HbA1c was 7.2", ["e1"]) == 1
+    assert cited("In 2027 HbA1c was 7.2", ["e1"]) == 0  # the cited event is from 2026
+    assert cited("In 2027 HbA1c was 5.9", ["e1", "e9"]) == 1

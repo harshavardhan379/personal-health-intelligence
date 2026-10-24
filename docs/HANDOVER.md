@@ -318,8 +318,12 @@ directives / dose instructions / false reassurance. `VerifiedAnswer` gained `saf
   not recognise, is reported as is and NOT changed; (2) the QA scorer now accepts a difference
   between two measurements of the same thing as supported (metric definitions 0.4, framework
   "Decisions after the first comparison"). The dev comparison has to be re-run under 0.4.
-- **Next:** re-run the dev comparison under 0.4, freeze the code, run `--split test --final`
-  once (clean git tree), then the report `docs/07_BENCHMARK_REPORT.md` (YGH-72).
+- **Dev comparison re-run under 0.4** (framework section 16), and a third scorer false positive
+  (bare years) fixed: metric definitions are now **0.5**. Measured: the same systems at
+  temperature 0 give different answers for 3 to 26 percent of questions between two runs, so
+  single-run differences of a few questions are noise.
+- **Next:** freeze the code, run `--split test --final` once (clean git tree; consider whether
+  to repeat it to show the noise), then the report `docs/07_BENCHMARK_REPORT.md` (YGH-72).
 
 ### Session continuity
 `eb7c1d1` — this file was first created, then is being rewritten right now into the version

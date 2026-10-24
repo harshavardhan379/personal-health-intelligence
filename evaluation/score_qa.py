@@ -28,7 +28,8 @@ Known heuristics (framework section 9): numbers are found by pattern, so a deriv
 the records never print (a percentage change) can be flagged unsupported; small whole
 numbers up to ten (counts such as "2 reports") are always allowed. The difference between two
 measurements of the same thing (two HbA1c values, two Metformin doses) is derivable and is
-treated as supported (metric definitions 0.4).
+treated as supported (metric definitions 0.4). So is a bare year ("in 2023") when some event of
+the patient, or some cited event for the citation check, falls in that year (0.5).
 """
 
 import re
@@ -87,6 +88,12 @@ def _measured_differences(events: list) -> set:
             for i, a in enumerate(values) for b in values[i + 1:]}
 
 
+def _event_years(events: list) -> set:
+    """The calendar years the events fall in. A bare year in a claim ('in 2023') reads as the
+    number 2023 to the number pattern; it is supported when an event is dated in that year."""
+    return {float(e.event_date.year) for e in events if e.event_date}
+
+
 def _day_differences(events: list) -> set:
     days = sorted({e.event_date for e in events if e.event_date and e.date_precision == "day"})
     return {float((b - a).days) for i, a in enumerate(days) for b in days[i + 1:]}
@@ -112,7 +119,7 @@ def _claim_supported(claim: str, patient_events: list, question_text: str) -> bo
     """True unless the claim states a number, date or medication that is nowhere in the
     patient's ground truth (and was not in the question)."""
     allowed = set(SMALL_COUNTS) | _day_differences(patient_events)
-    allowed |= _measured_differences(patient_events)
+    allowed |= _measured_differences(patient_events) | _event_years(patient_events)
     for event in patient_events:
         allowed |= _event_numbers(event)
     allowed |= numbers_in(question_text)
@@ -129,7 +136,8 @@ def _claim_supported(claim: str, patient_events: list, question_text: str) -> bo
 
 def _claim_matches_cited(claim: str, cited_events: list) -> bool:
     """Every number and date in the claim agrees with the events it cites."""
-    allowed = _day_differences(cited_events) | _measured_differences(cited_events)
+    allowed = (_day_differences(cited_events) | _measured_differences(cited_events)
+               | _event_years(cited_events))
     allowed |= {float(k) for k in range(len(cited_events) + 1)}  # a count of the cited items
     for event in cited_events:
         allowed |= _event_numbers(event)

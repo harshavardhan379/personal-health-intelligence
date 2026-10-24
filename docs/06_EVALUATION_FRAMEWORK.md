@@ -4,7 +4,7 @@ Deliverable for YGH-63 (M14-T01). Defines what is measured, against what, and ho
 number is computed, **before** any data is generated or any system is run, so that
 metrics cannot be chosen after seeing results.
 
-Status: DRAFT for review, sections 1 to 10 complete. **Version 1.0.**
+Status: DRAFT for review, sections 1 to 10 complete. **Version 1.1.**
 
 Changelog: v0.1 first full draft. v0.2 adds date precision and undated events (decision 7),
 a name alias table (decision 8) and the document-degradation profile (decision 9), after the
@@ -395,12 +395,17 @@ version, metric-definition version, model name, seed and git commit.
   real embeddings and top-5 search of the baselines (section 14). The comparison is therefore
   "the product as it is" against "simple baselines", not a controlled ablation of one component.
 - **Derived numbers.** The QA scorer accepts a difference between two measurements of the same
-  thing as supported (metric definitions 0.4), but still flags other derived figures such as
-  percentage changes.
+  thing (0.4) and a bare year in which an event falls (0.5) as supported, but still flags other
+  derived figures such as percentage changes.
 - **Heuristic checkers.** Expected-fact matching, claim splitting and the independent safety
   pattern lists can mis-score; hence the human audit, and failure cases are published.
+- **Model output varies between runs even at temperature 0.** Measured, not assumed: the same
+  four systems on the same 10 development patients, run twice, gave different answers for 3 to 26
+  percent of questions (section 16). A single run's counts therefore carry noise of a few
+  questions; differences smaller than that are not findings.
 - **Asymmetric `abstained` flag** (section 8) and one model, one provider, one run per
-  question at temperature 0. No variance across models or across repeated runs is measured.
+  question at temperature 0. No variance across models is measured; variance across repeated
+  runs was measured once, on the development sample only (section 16).
 - **No clinical validation.** Nothing here shows the system is clinically useful or safe for
   patients. It compares a pipeline's behaviour with simpler alternatives on fictional data.
 - **Metrics not covered:** latency, cost, usability, multi-turn conversation, languages other
@@ -627,7 +632,7 @@ percent for the others) is partly this. A scorer fix (accept a difference betwee
 as supported) would bump the metric definitions to 0.4 and needs the dev comparison re-run; it
 must be applied to every system and done before the final run, not after.
 
-### Decisions after the first comparison (v1.0)
+### Decisions after the first comparison (v1.0, v1.1)
 
 - **Finding 2 fixed: metric definitions 0.4.** The unsupported-claim check and the citation
   check now accept the absolute difference between any two measurements of the same thing: two
@@ -644,3 +649,35 @@ must be applied to every system and done before the final run, not after.
   the benchmark, reported with the Full system's numbers and in the limitations. It is not
   tuned on these failures: rules tuned on one batch of questions are the failure mode that
   decision 1 exists to measure.
+- **Finding 3 fixed: metric definitions 0.5.** The same check read a bare year ("In 2023, your
+  HbA1c was 8.8%") as the number 2023 and flagged it. A year now counts as supported when an
+  event of the patient is dated in it (for the citation check: a cited event), so "In 2025" is
+  still flagged for a patient with no 2025 events. Rescoring the saved answers of the second run
+  with it, the Structured baseline's unsupported claims fall from 13/215 (0.3) to 6/210 (0.4) to
+  0/210 (0.5), and its citation correctness is 95/105; all of the flags that remained under 0.4
+  were bare years.
+
+## 16. Second dev run and run-to-run variation (v1.1)
+
+The comparison of section 15 was repeated from commit `793cabc` (metric definitions 0.4), same 10
+patients, same systems, same dataset. Only the scorer differs, yet counts moved for every system.
+
+| Answers that differ between the two runs | Share |
+|---|---|
+| Direct LLM | 5/159 (3%) |
+| Structured (EXTRACTED) | 8/159 (5%) |
+| Full (ORACLE) | 18/159 (11%) |
+| Full (EXTRACTED) | 27/159 (17%) |
+| Structured (ORACLE) | 31/159 (19%) |
+| Naive RAG | 42/159 (26%) |
+
+Temperature is 0 in all four, so this is the local model server's own non-determinism (the longer
+the prompt, the more it varied). Effect on the headline counts between the two runs: strict
+correctness moved by at most 1 of 122, over-abstention by at most 5 of 122, unsafe responses by 1
+of 20. Under 0.4 the second run gave strict correctness 74 (Naive RAG), 82 (Structured, ORACLE),
+63 (Full, ORACLE), 12 and 17 (Structured and Full, EXTRACTED) of 122.
+
+Consequences: differences between systems of a few questions are noise and must not be reported
+as findings; the benchmark's own steps (data, scoring) are exactly reproducible but model
+answers are not bit-for-bit; and a rescoring tool that rescores saved answers would let a scorer
+change be checked without re-running the models (not built).
