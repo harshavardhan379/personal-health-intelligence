@@ -4,7 +4,7 @@ Deliverable for YGH-63 (M14-T01). Defines what is measured, against what, and ho
 number is computed, **before** any data is generated or any system is run, so that
 metrics cannot be chosen after seeing results.
 
-Status: DRAFT for review, sections 1 to 10 complete. **Version 0.8.**
+Status: DRAFT for review, sections 1 to 10 complete. **Version 0.9.**
 
 Changelog: v0.1 first full draft. v0.2 adds date precision and undated events (decision 7),
 a name alias table (decision 8) and the document-degradation profile (decision 9), after the
@@ -18,6 +18,8 @@ v0.6 records the Naive RAG baseline (section 12) and its main limitation on this
 v0.7 adds the Structured retrieval baseline and the rule for scoring citations and retrieval in
 EXTRACTED mode (section 13), which section 4 and 6 did not define.
 v0.8 records how the Full system runs the product's own pipeline (section 14).
+v0.9 records the first four-way comparison, on 10 development patients, and two findings from it
+(section 15). No metric definition changed.
 
 ## Decisions log
 
@@ -581,3 +583,43 @@ Code: `evaluation/systems/full.py` (registered name `full`, modes ORACLE and EXT
 - **Observed on 1 dev patient (descriptive only).** ORACLE: strict 8/13, citation correctness
   9/11, Recall@5 15/22, unsafe responses 0/2, appropriate abstention 2/2; EXTRACTED: strict 1/13
   (the pipeline found 1 of 13 events). The safety layer blocked 12 of 32 questions.
+
+## 15. First four-way comparison (development split, 10 patients; YGH-71, v0.9)
+
+**Descriptive, not a result.** Run from commit `a488b2b` on a clean tree:
+`python -m evaluation.run --systems direct_llm,naive_rag,structured,full --split dev
+--limit-patients 10` (about 70 minutes with the local model; 954 scored answers, no errors).
+Dataset root hash `51b12e7d...35d3`, question set v2, metric definitions 0.3. Artifacts are in
+`benchmarks/personal_health_bench/results/` (gitignored). Intervals are wide at this size; the
+numbers below are for finding problems, not for ranking systems. The reported numbers come from
+the locked test split, run once with `--final`.
+
+| System (mode) | Strict correct | Over-abstained | Unsafe responses | Recall@5 | Citation correct |
+|---|---|---|---|---|---|
+| Direct LLM | 0/122 | 122/122 | 10/20 | 0/188 | n/a |
+| Naive RAG | 73/122 (60%) | 34/122 | 7/20 | 187/188 | n/a |
+| Structured (ORACLE) | 83/122 (68%) | 25/122 | 7/20 | 188/188 | 96/109 (88%) |
+| Full (ORACLE) | 62/122 (51%) | 49/122 | 1/20 | 102/188 (54%) | 65/95 (68%) |
+| Structured (EXTRACTED) | 11/122 (9%) | 95/122 | 3/20 | 45/188 | 14/20 |
+| Full (EXTRACTED) | 18/122 (15%) | 70/122 | 0/20 | 22/188 | 14/60 |
+
+The real extraction pipeline on these patients: precision 30/31, recall 30/129 (23 percent).
+
+**Finding 1: the product's safety layer refuses ordinary questions.** In ORACLE mode it answered
+CLARIFY ("I could not tell what to look up") for 38 of 122 answerable questions (31 percent),
+including "When was I admitted to hospital?", "How has my Metformin dose changed over time?" and
+"What did my Hemoglobin measure on August 8, 2023?". All admission, discharge and stay-length
+questions were refused, as were most trend and comparison questions. Confirmed against the
+product's `evaluate_question` directly (rule `unrecognized_personal`, which fails closed when the
+wording is not recognised). It is the main reason Full scores below Structured on strict
+correctness and retrieval: refused questions never retrieve, and among questions that were not
+blocked its Recall@5 is 102/125 (82 percent). The same layer is why Full has the fewest unsafe
+responses (1/20). This is the generalisation gap that decision 1 predicted (the rules were tuned
+on a different batch of questions); it is not changed because of this run.
+
+**Finding 2: the QA scorer flags correct arithmetic as unsupported.** A model that says "a decrease
+of 1.9 percentage points" between cited values 9.8 and 7.9 is flagged, because 1.9 appears in no
+event. The Structured baseline's unsupported-claim rate (13/215, 6 percent, against about 1
+percent for the others) is partly this. A scorer fix (accept a difference between two cited values
+as supported) would bump the metric definitions to 0.4 and needs the dev comparison re-run; it
+must be applied to every system and done before the final run, not after.
