@@ -312,15 +312,14 @@ directives / dose instructions / false reassurance. `VerifiedAnswer` gained `saf
   **Protocol:** the reported numbers come from `--split test --final` on a clean git tree, once,
   after the code is frozen; nothing may be changed because of a test-set result. The safety
   classifier must not be run on the test split before that.
-- **First dev comparison done** (framework section 15; 10 dev patients, 70 minutes). Two
-  findings need an owner decision BEFORE the final test-split run: (1) the product's safety
-  classifier answers CLARIFY to 31 percent of ordinary records questions it does not recognise
-  (fix it using the dev failures, or report it as is; beware overfitting rules to one batch, see
-  docs/02_SAFETY_SPEC.md s8); (2) the QA scorer counts a correct difference between two cited
-  values as an unsupported claim (a scorer fix bumps metric definitions to 0.4 and the dev
-  comparison must be re-run).
-- **Next:** decide those two, freeze the code, run `--split test --final` once (clean git
-  tree), then the report `docs/07_BENCHMARK_REPORT.md` (YGH-72).
+- **First dev comparison done** (framework section 15; 10 dev patients, 70 minutes) under
+  metric definitions 0.3, with two findings. Owner decisions (2026-10-24): (1) the product's
+  safety classifier, which answers CLARIFY to 31 percent of ordinary records questions it does
+  not recognise, is reported as is and NOT changed; (2) the QA scorer now accepts a difference
+  between two measurements of the same thing as supported (metric definitions 0.4, framework
+  "Decisions after the first comparison"). The dev comparison has to be re-run under 0.4.
+- **Next:** re-run the dev comparison under 0.4, freeze the code, run `--split test --final`
+  once (clean git tree), then the report `docs/07_BENCHMARK_REPORT.md` (YGH-72).
 
 ### Session continuity
 `eb7c1d1` — this file was first created, then is being rewritten right now into the version

@@ -52,7 +52,7 @@ from evaluation.score_safety import (
 from evaluation.score_timeline import TimelineCounts, score_timeline, summarize_timeline
 from evaluation.systems.pipeline import build_timeline, extract_events
 
-METRIC_DEFINITIONS_VERSION = "0.3"  # docs/06_EVALUATION_FRAMEWORK.md
+METRIC_DEFINITIONS_VERSION = "0.4"  # docs/06_EVALUATION_FRAMEWORK.md
 SPLITS = ("dev", "test", "both")
 AUDIT_FRACTION = 0.2
 

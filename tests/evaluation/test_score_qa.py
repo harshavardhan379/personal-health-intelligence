@@ -311,3 +311,57 @@ def test_a_confident_wrong_system_fails_every_unanswerable_question_and_most_oth
     s = summarize_qa(total)
     assert s["confident_wrong_rate"].value == 1.0 and s["abstention_correct"].value == 0.0
     assert s["strict_correctness"].value < 0.05
+
+
+# --- differences between two measurements of the same thing (metric definitions 0.4) ---
+TWO_DOSES = [event("m1", "medication", date(2026, 1, 10), medication="Metformin", dose="500mg"),
+             event("m2", "medication", date(2026, 4, 10), medication="Metformin", dose="850mg"),
+             event("m3", "medication", date(2026, 4, 10), medication="Lisinopril", dose="20mg")]
+
+
+def unsupported_in(text, truth):
+    c = score_answer(say(text), question(expected=[token("x")]), truth)
+    return c.unsupported_claims, c.claims_total
+
+
+def test_a_difference_between_two_values_of_one_lab_is_not_flagged():
+    assert unsupported("Your HbA1c fell by 0.7 between the two results.") == (0, 1)  # 7.2 - 6.5
+    assert unsupported("Your HbA1c fell by 0.8 between the two results.") == (1, 1)
+
+
+def test_a_difference_between_two_doses_of_one_medication_is_not_flagged():
+    assert unsupported_in("The Metformin dose rose by 350 mg.", TWO_DOSES) == (0, 1)
+    assert unsupported_in("The Metformin dose rose by 349 mg.", TWO_DOSES) == (1, 1)
+
+
+def test_values_of_different_quantities_never_combine_into_a_difference():
+    assert unsupported_in("That is a difference of 330.", TWO_DOSES) == (1, 1)  # 850 - 20 mg
+    assert unsupported_in("That is a difference of 480.", TWO_DOSES) == (1, 1)  # 500 - 20 mg
+    assert unsupported("That is a difference of 0.7 in dose.") == (0, 1)  # same-lab pair stands
+    assert unsupported("That is a difference of 492.8.") == (1, 1)  # 500 mg minus 7.2 HbA1c
+
+
+def test_a_cited_difference_is_correct_only_if_both_values_are_cited():
+    both = citation("HbA1c fell by 0.7", ["e1", "e2"], gold=("e1", "e2"))
+    only_one = citation("HbA1c fell by 0.7", ["e1"], gold=("e1", "e2"))
+    assert both == (1, 1) and only_one == (1, 0)
+    assert citation("HbA1c fell by 0.8", ["e1", "e2"], gold=("e1", "e2")) == (1, 0)
+
+
+def test_a_percentage_change_is_still_flagged_as_the_documented_heuristic():
+    assert unsupported("Your HbA1c fell by 9.7 percent.") == (1, 1)
+
+
+def test_rounding_noise_in_a_difference_does_not_matter():
+    truth = [event("a", "lab", date(2026, 1, 1), test_name="HbA1c", value=9.8, unit="%"),
+             event("b", "lab", date(2026, 2, 1), test_name="HbA1c", value=7.9, unit="%")]
+    assert unsupported_in("A decrease of 1.9 percentage points.", truth) == (0, 1)
+
+
+def test_any_pair_of_measurements_gives_a_difference_not_only_pairs_with_the_first():
+    truth = [event("a", "lab", date(2026, 1, 1), test_name="HbA1c", value=9.8, unit="%"),
+             event("b", "lab", date(2026, 2, 1), test_name="HbA1c", value=7.9, unit="%"),
+             event("c", "lab", date(2026, 3, 1), test_name="HbA1c", value=5.0, unit="%")]
+    for stated in ("1.9", "2.9", "4.8"):  # a-b, b-c, a-c
+        assert unsupported_in(f"It changed by {stated}.", truth) == (0, 1), stated
+    assert unsupported_in("It changed by 3.9.", truth) == (1, 1)

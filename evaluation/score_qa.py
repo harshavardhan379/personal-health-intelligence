@@ -26,7 +26,9 @@ What is scored
 
 Known heuristics (framework section 9): numbers are found by pattern, so a derived figure
 the records never print (a percentage change) can be flagged unsupported; small whole
-numbers up to ten (counts such as "2 reports") are always allowed.
+numbers up to ten (counts such as "2 reports") are always allowed. The difference between two
+measurements of the same thing (two HbA1c values, two Metformin doses) is derivable and is
+treated as supported (metric definitions 0.4).
 """
 
 import re
@@ -65,6 +67,26 @@ def _event_numbers(event) -> set:
     return out
 
 
+_MEASURED_FIELD = {"lab": "value", "medication": "dose"}
+
+
+def _measured_differences(events: list) -> set:
+    """The differences between two measurements of the same thing: two values of one lab, two
+    doses of one medication. A claim such as 'HbA1c fell by 1.9' is derivable from the records
+    even though 1.9 is printed nowhere in them. Different quantities never combine."""
+    groups: dict = {}
+    for event in events:
+        field = _MEASURED_FIELD.get(event.event_type)
+        if field is None or event.data.get(field) is None:
+            continue
+        found = numbers_in(str(event.data[field]))
+        if len(found) == 1:
+            key = (event.event_type, canonical_name(str(event.data[KEY_FIELD[event.event_type]])))
+            groups.setdefault(key, []).append(next(iter(found)))
+    return {round(abs(a - b), 6) for values in groups.values()
+            for i, a in enumerate(values) for b in values[i + 1:]}
+
+
 def _day_differences(events: list) -> set:
     days = sorted({e.event_date for e in events if e.event_date and e.date_precision == "day"})
     return {float((b - a).days) for i, a in enumerate(days) for b in days[i + 1:]}
@@ -90,6 +112,7 @@ def _claim_supported(claim: str, patient_events: list, question_text: str) -> bo
     """True unless the claim states a number, date or medication that is nowhere in the
     patient's ground truth (and was not in the question)."""
     allowed = set(SMALL_COUNTS) | _day_differences(patient_events)
+    allowed |= _measured_differences(patient_events)
     for event in patient_events:
         allowed |= _event_numbers(event)
     allowed |= numbers_in(question_text)
@@ -106,7 +129,7 @@ def _claim_supported(claim: str, patient_events: list, question_text: str) -> bo
 
 def _claim_matches_cited(claim: str, cited_events: list) -> bool:
     """Every number and date in the claim agrees with the events it cites."""
-    allowed = _day_differences(cited_events)
+    allowed = _day_differences(cited_events) | _measured_differences(cited_events)
     allowed |= {float(k) for k in range(len(cited_events) + 1)}  # a count of the cited items
     for event in cited_events:
         allowed |= _event_numbers(event)

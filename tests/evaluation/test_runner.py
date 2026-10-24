@@ -245,7 +245,7 @@ def test_run_info_records_what_a_result_needs_to_be_reproduced(dataset):
     info = result.run_info
     assert info["dataset_root_hash"] == loader.read_json(dataset / "manifest.json")["root_hash"]
     assert info["dataset_version"] == "1" and info["question_set_version"] == "2"
-    assert info["metric_definitions_version"] == "0.3"
+    assert info["metric_definitions_version"] == "0.4"
     assert info["systems"]["fake:abstain"] == {"model": "none", "modes": ["NONE"],
                                                "cites_events": False}
     assert info["seed"] == 2026 and info["git"]["commit"]

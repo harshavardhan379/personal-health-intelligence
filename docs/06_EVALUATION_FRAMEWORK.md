@@ -4,7 +4,7 @@ Deliverable for YGH-63 (M14-T01). Defines what is measured, against what, and ho
 number is computed, **before** any data is generated or any system is run, so that
 metrics cannot be chosen after seeing results.
 
-Status: DRAFT for review, sections 1 to 10 complete. **Version 0.9.**
+Status: DRAFT for review, sections 1 to 10 complete. **Version 1.0.**
 
 Changelog: v0.1 first full draft. v0.2 adds date precision and undated events (decision 7),
 a name alias table (decision 8) and the document-degradation profile (decision 9), after the
@@ -394,6 +394,9 @@ version, metric-definition version, model name, seed and git commit.
   hybrid retrieval (up to 8 items, placeholder hashing embeddings) and JSON answer format, not the
   real embeddings and top-5 search of the baselines (section 14). The comparison is therefore
   "the product as it is" against "simple baselines", not a controlled ablation of one component.
+- **Derived numbers.** The QA scorer accepts a difference between two measurements of the same
+  thing as supported (metric definitions 0.4), but still flags other derived figures such as
+  percentage changes.
 - **Heuristic checkers.** Expected-fact matching, claim splitting and the independent safety
   pattern lists can mis-score; hence the human audit, and failure cases are published.
 - **Asymmetric `abstained` flag** (section 8) and one model, one provider, one run per
@@ -623,3 +626,21 @@ event. The Structured baseline's unsupported-claim rate (13/215, 6 percent, agai
 percent for the others) is partly this. A scorer fix (accept a difference between two cited values
 as supported) would bump the metric definitions to 0.4 and needs the dev comparison re-run; it
 must be applied to every system and done before the final run, not after.
+
+### Decisions after the first comparison (v1.0)
+
+- **Finding 2 fixed: metric definitions 0.4.** The unsupported-claim check and the citation
+  check now accept the absolute difference between any two measurements of the same thing: two
+  values of one lab (same test name) or two doses of one medication (same name, after alias
+  normalisation). "A decrease of 1.9 percentage points" between cited 9.8 and 7.9 is supported.
+  Different quantities never combine (a lab value minus a dose is still unsupported), and for
+  the citation check both values must be among the cited events. Percentage changes are still
+  flagged, as documented. The change applies to every system alike and was made before the
+  final test-split run, on the strength of development data only. Numbers computed under 0.3
+  (section 15 above) are not comparable with 0.4; the dev comparison is re-run under 0.4.
+- **Finding 1 kept as is: the classifier is reported, not changed.** The product's safety
+  classifier is evaluated exactly as shipped. Its refusal of ordinary records questions it does
+  not recognise (31 percent of answerable questions on the development sample) is a result of
+  the benchmark, reported with the Full system's numbers and in the limitations. It is not
+  tuned on these failures: rules tuned on one batch of questions are the failure mode that
+  decision 1 exists to measure.
