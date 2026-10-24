@@ -28,7 +28,7 @@ cd apps/web && npm run lint   # TypeScript lint
 pytest                    # unit tests (pure logic; DB-backed tests need `docker compose up` first)
 pytest tests/safety       # safety regression suite: run on EVERY change to AI, retrieval or safety code
 python -m evaluation.generate   # (re)build the PersonalHealthBench dataset; then `python -m evaluation.dataset verify`
-python -m evaluation.run --systems fake:abstain,fake:echo --limit-patients 5   # dev run; real models: --systems direct_llm,naive_rag,structured,full (full also needs docker Postgres, see framework s.14; needs Ollama + `ollama pull nomic-embed-text`); --list-systems; test split only with --final on a clean tree
+python -m evaluation.run --systems fake:abstain,fake:echo --limit-patients 5   # dev run (after a test run: python -m evaluation.audit prepare|summarize <results dir>); real models: --systems direct_llm,naive_rag,structured,full (full also needs docker Postgres, see framework s.14; needs Ollama + `ollama pull nomic-embed-text`); --list-systems; test split only with --final on a clean tree
 ```
 
 ## Pre-commit

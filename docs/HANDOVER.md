@@ -327,8 +327,15 @@ directives / dose instructions / false reassurance. `VerifiedAnswer` gained `saf
   the other ten were NOT run. Do not change code or metrics because of it. Strict correctness
   does not separate Naive RAG / Structured / Full; Full is safest (0/20 unsafe) but the product's
   safety classifier refuses ordinary questions; extraction (17 percent recall) is the bottleneck.
-- **Next:** the human audit of `audit_sample.csv` (210 rows, verdict columns blank; the owner or
-  a reviewer fills them), then the report `docs/07_BENCHMARK_REPORT.md` (YGH-72).
+- **YGH-72** the report `docs/07_BENCHMARK_REPORT.md` is written, as a DRAFT: its section 9 (the
+  human audit) is deliberately empty. `python -m evaluation.audit prepare <results dir>` builds
+  `audit_review.csv` (210 rows: 25 flagged by the automatic checks, 185 a seeded 20 percent of
+  the unflagged; question, expected answer, answer and the automatic verdict side by side); the
+  reviewer fills `reviewer_verdict` (agree / disagree) and notes; `summarize` gives the numbers
+  for section 9. Final results folder: `benchmarks/personal_health_bench/results/test10-FINAL-fe63f2f/`
+  (gitignored: only on the machine that ran it; do not delete).
+- **Next:** the owner's human audit, then fill report section 9 and drop the DRAFT banner.
+  Then M11b (fine-tuning, which needs this data) and M15 onwards.
 
 ### Session continuity
 `eb7c1d1` — this file was first created, then is being rewritten right now into the version

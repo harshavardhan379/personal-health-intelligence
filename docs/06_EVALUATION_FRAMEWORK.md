@@ -731,7 +731,10 @@ safety numbers (it is told to refuse, so they are by construction, section 11). 
 model the whole record for most patients, so it is effectively a full-context baseline here
 (section 12).
 
-**Still to do for the report.** The human audit (section 7): `audit_sample.csv` lists all 210
-flagged responses plus a seeded 20 percent of the rest, with blank `reviewer_verdict` and
-`reviewer_notes` columns. Its disagreements with the automatic labels must be reported alongside
-these numbers.
+**Still to do for the report.** The human audit (section 7): `audit_sample.csv` has 210 rows, of
+which 25 were flagged by the automatic checks and 185 are a seeded random 20 percent of the 923
+unflagged responses (an earlier version of this paragraph wrongly called all 210 flagged).
+`python -m evaluation.audit prepare <results dir>` joins each row with its question, what a correct
+answer looks like and the answer, and `python -m evaluation.audit summarize <results dir>` turns the
+filled verdicts into the numbers to report. Its disagreements with the automatic labels must be
+reported alongside the results (`docs/07_BENCHMARK_REPORT.md`, section 9).
