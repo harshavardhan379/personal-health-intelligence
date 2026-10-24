@@ -106,7 +106,7 @@ function DocumentsPageInner() {
         ) : (
           <ul className="mt-3 divide-y divide-slate-200">
             {documents.map((doc) => (
-              <li key={doc.id} className="py-3">
+              <li key={doc.id} id={`doc-${doc.id}`} className="scroll-mt-4 py-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-medium">{doc.filename}</span>
                   <span

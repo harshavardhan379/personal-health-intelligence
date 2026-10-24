@@ -515,6 +515,35 @@ all three, and the benchmark report. **This is what M11b's fine-tuning needs bef
 Real dashboard, documents page polish, document detail page, **the assistant page that doesn't
 exist yet**, loading/error/empty states everywhere.
 
+**Progress: YGH-122 (the Assistant page) is done.** `apps/web/src/app/assistant/page.tsx` and
+`components/assistant/AnswerCard.tsx`: ask a question, see the answer with clickable `[n]` citations,
+how each statement was checked (the verifier's label and explanation), the uncertainty note, and a
+numbered Sources list (filename, page, the source quote, and a link). A question the safety layer
+blocks shows a fixed amber card (CLARIFY: "Could you rephrase that?") with no sources. Loading, error
+(with Try again), expired-session and empty-input states are handled. Remaining in M15: YGH-116
+documents page, YGH-118 document detail page, YGH-120 timeline page, YGH-89 dashboard, YGH-124
+settings, YGH-126 loading/error/empty states elsewhere.
+- **API change (additive):** `POST /assistant/ask` now also returns `evidence`, the numbered sources
+  the answer was generated from (`number`, `text`, `document_id`, `filename`, `page`, `event_ids`,
+  `source`). It is empty whenever the safety layer blocked or replaced the answer. Filenames are
+  looked up only among the signed-in user's own documents (`services/verification/sources.py`).
+  `generate_verified_answer` behaves exactly as before (it wraps the new `run_verified_pipeline`), so
+  the benchmark's `full` system and its parity test are untouched and the benchmark report still
+  describes commit `fe63f2f`.
+- **Source links** go to `/documents#doc-<id>` for now (there is no document page). They are built in
+  one function, `documentHref` in `apps/web/src/lib/assistant-format.ts`: change it when YGH-118 lands.
+- **Frontend tests:** `cd apps/web && npm test` runs Node's built-in runner (Node 22+, no new
+  dependency) over `tests/*.test.mjs` for the pure logic (citation splitting, what counts as blocked,
+  the document link). There is no component-test framework yet.
+- **How it was verified:** tsc, eslint and `next build` clean, 10 backend tests, and the page driven in a
+  browser against the REAL FastAPI app with only the database (SQLite) and the retrieval+LLM step
+  stood in. **Not yet verified against the live stack (Postgres + Ollama): Docker was not running.**
+  Do that before calling M15 finished.
+- **Seen in the UI, from the benchmark:** "When was I admitted to hospital?" returns the "Could you
+  rephrase that?" card, because the product's classifier does not recognise it (docs/07_BENCHMARK_REPORT.md).
+- **Known:** a server 500 reaches the browser as a failed fetch (FastAPI's 500 responses carry no CORS
+  headers), so the page cannot tell it from being offline and says so.
+
 ### M16 — Observability & Reliability
 Structured logging is already real; this adds request IDs threaded through every log line,
 AI call tracing (the already-schema'd but unused `AITrace` table), performance metrics,

@@ -20,6 +20,19 @@ class ClaimVerification(BaseModel):
     explanation: Optional[str] = None
 
 
+class SourceEvidence(BaseModel):
+    """One piece of evidence an answer was generated from, as the user is shown it.
+    `number` is what a claim's `citation_indices` and the answer's [n] markers refer to."""
+
+    number: int
+    text: str  # the source quote the fact was extracted from
+    document_id: str
+    filename: Optional[str] = None  # None if the document is not one of the user's
+    page: int
+    event_ids: list[str] = []
+    source: str
+
+
 class VerifiedAnswer(BaseModel):
     answer: str
     claim_verifications: list[ClaimVerification]
@@ -31,3 +44,7 @@ class VerifiedAnswer(BaseModel):
     # How the safety layer (M13) routed the question; see packages/schemas/safety.py.
     safety_category: Optional[str] = None
     safety_action: Optional[str] = None
+    # The numbered evidence the answer was generated from (YGH-122). Empty whenever the safety
+    # layer blocked or replaced the answer: nothing behind a blocked answer is shown.
+    evidence: list[SourceEvidence] = []
+

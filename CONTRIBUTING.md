@@ -25,6 +25,7 @@ Copy `services/api/.env.example` to `services/api/.env` and fill in real values 
 ```bash
 ruff check .              # Python lint
 cd apps/web && npm run lint   # TypeScript lint
+cd apps/web && npm test        # frontend unit tests (Node's built-in runner, Node 22+)
 pytest                    # unit tests (pure logic; DB-backed tests need `docker compose up` first)
 pytest tests/safety       # safety regression suite: run on EVERY change to AI, retrieval or safety code
 python -m evaluation.generate   # (re)build the PersonalHealthBench dataset; then `python -m evaluation.dataset verify`

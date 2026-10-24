@@ -51,21 +51,31 @@ def verify_answer(answer: Answer, evidence: list[Evidence]) -> VerifiedAnswer:
     )
 
 
-def generate_verified_answer(
+def run_verified_pipeline(
     db: Session, user_id: uuid.UUID, question: str
-) -> VerifiedAnswer:
-    """The gated entry point — use this instead of generate_answer() wherever
-    an answer is actually shown to a user (the API route).
+) -> tuple:
+    """The gated pipeline, also returning the evidence the answer was generated from.
 
     Order matters: safety check on the QUESTION first (a blocked question never
     reaches retrieval or the model), then generate, verify, and finally safety
-    check on the model's OUTPUT.
+    check on the model's OUTPUT. Returns (VerifiedAnswer, list[Evidence]); the
+    evidence list is empty when the question was blocked before retrieval.
     """
     decision = evaluate_question(question)
     intent = classify_intent(question)
     if decision.blocks_generation:
-        return refusal_answer(decision, intent)
+        return refusal_answer(decision, intent), []
 
     answer, context = generate_answer_with_context(db, user_id, question)
     verified = verify_answer(answer, context.evidence)
-    return guard_output(verified, decision, intent)
+    return guard_output(verified, decision, intent), context.evidence
+
+
+def generate_verified_answer(
+    db: Session, user_id: uuid.UUID, question: str
+) -> VerifiedAnswer:
+    """The gated entry point — use this instead of generate_answer() wherever
+    an answer is actually shown to a user. Behaviour is exactly that of
+    run_verified_pipeline; the benchmark's `full` system repeats this order
+    (evaluation/systems/full.py) and a test keeps the two identical."""
+    return run_verified_pipeline(db, user_id, question)[0]
