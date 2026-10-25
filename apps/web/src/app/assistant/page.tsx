@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import AnswerCard from "@/components/assistant/AnswerCard";
 import RequireAuth from "@/components/RequireAuth";
 import { ApiError } from "@/lib/api";
@@ -30,13 +31,16 @@ function describeError(err: unknown): Pick<Entry, "error" | "sessionExpired"> {
 }
 
 function AssistantPageInner() {
+  const router = useRouter();
+  const preset = useSearchParams().get("ask");
+  const presetHandled = useRef(false);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [text, setText] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const nextId = useRef(1);
   const busy = entries.some((entry) => entry.status === "pending");
 
-  async function ask(question: string, replaceId?: number) {
+  const ask = useCallback(async (question: string, replaceId?: number) => {
     const id = replaceId ?? nextId.current++;
     const pending: Entry = { id, question, status: "pending" };
     setEntries((all) =>
@@ -52,7 +56,16 @@ function AssistantPageInner() {
         all.map((e) => (e.id === id ? { id, question, status: "error", ...describeError(err) } : e)),
       );
     }
-  }
+  }, []);
+
+  // A question handed over from the dashboard (/assistant?ask=...): ask it once, then clear the
+  // address so a refresh does not ask it again.
+  useEffect(() => {
+    if (!preset || presetHandled.current) return;
+    presetHandled.current = true;
+    router.replace("/assistant");
+    void ask(preset.slice(0, MAX_QUESTION_LENGTH));
+  }, [preset, router, ask]);
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -161,7 +174,9 @@ function AssistantPageInner() {
 export default function AssistantPage() {
   return (
     <RequireAuth>
-      <AssistantPageInner />
+      <Suspense fallback={null}>
+        <AssistantPageInner />
+      </Suspense>
     </RequireAuth>
   );
 }

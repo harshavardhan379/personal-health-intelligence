@@ -97,16 +97,22 @@ export function Async<T>({
   isEmpty,
   empty,
   loadingLabel,
+  errorView,
   children,
 }: {
   state: ApiState<T>;
   isEmpty?: (data: T) => boolean;
   empty?: ReactNode;
   loadingLabel?: string;
+  // Shown instead of the error box when there is no data, for a panel whose error is already
+  // reported once elsewhere on the page.
+  errorView?: ReactNode;
   children: (data: T) => ReactNode;
 }) {
   if (state.loading && state.data === null) return <LoadingState label={loadingLabel} />;
-  if (state.error && state.data === null) return <ErrorState failure={state.error} onRetry={state.reload} />;
+  if (state.error && state.data === null) {
+    return errorView ? <>{errorView}</> : <ErrorState failure={state.error} onRetry={state.reload} />;
+  }
   if (state.data === null) return null;
   return (
     <>
