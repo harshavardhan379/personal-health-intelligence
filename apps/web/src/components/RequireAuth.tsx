@@ -20,7 +20,7 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
   if (!user && unreachable) {
     return (
       <ErrorState
-        failure={{ message: NETWORK_MESSAGE, sessionExpired: false, notFound: false }}
+        failure={{ message: NETWORK_MESSAGE, sessionExpired: false, notFound: false, requestId: null }}
         onRetry={retry}
       />
     );

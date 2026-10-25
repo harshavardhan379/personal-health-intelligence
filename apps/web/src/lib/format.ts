@@ -157,6 +157,33 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "Failed",
 };
 
+// Where processing stopped (the API's `failed_stage`), in words, and what the person can do about it.
+const STAGE_LABEL: Record<string, string> = {
+  read_file: "reading the stored file",
+  parse: "opening the document",
+  ocr: "reading scanned text",
+  classify: "working out the document type",
+  extract: "finding values in the document",
+  save: "saving the results",
+  interrupted: "processing was interrupted",
+};
+
+export function failedStageLabel(stage: string | null | undefined): string | null {
+  if (!stage) return null;
+  return STAGE_LABEL[stage] ?? null;
+}
+
+const STAGE_HINT: Record<string, string> = {
+  read_file: "Try again. If it keeps failing, upload the file again.",
+  parse: "The file may be damaged or protected. Try again, or upload a fresh copy.",
+  ocr: "Scanned pages can be slow to read. Try again; a clearer scan helps.",
+  interrupted: "This usually follows a restart. Nothing is lost: try again.",
+};
+
+export function failedStageHint(stage: string | null | undefined): string {
+  return (stage && STAGE_HINT[stage]) || "Try again.";
+}
+
 export function documentStatusLabel(status: string): string {
   return STATUS_LABEL[status] ?? status;
 }

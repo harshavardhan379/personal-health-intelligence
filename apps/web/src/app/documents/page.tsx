@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 import RequireAuth from "@/components/RequireAuth";
+import FailedDocument from "@/components/FailedDocument";
 import { Async, Badge, Card, EmptyState } from "@/components/states";
-import { getToken } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+import { describeFailure } from "@/lib/errors";
 import {
   documentStatusLabel,
   documentStatusStyle,
@@ -21,6 +23,7 @@ export type DocumentOut = {
   classification: string | null;
   classification_confidence: number | null;
   processing_error: string | null;
+  failed_stage: string | null;
   uploaded_at: string | null;
 };
 
@@ -53,26 +56,12 @@ function DocumentsPageInner() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${API_URL}/api/v1/documents`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${getToken()}` },
-        body: formData,
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error?.message || `Upload failed (${res.status})`);
-      }
+      await apiFetch("/documents", { method: "POST", body: formData });
       if (fileInput.current) fileInput.current.value = "";
       documents.reload();
     } catch (err) {
-      setUploadError(
-        err instanceof TypeError
-          ? "The upload could not reach the server. Please try again."
-          : err instanceof Error
-            ? err.message
-            : "Upload failed",
-      );
+      const failure = describeFailure(err, "The upload could not reach the server. Please try again.");
+      setUploadError(failure.requestId ? `${failure.message} (Reference: ${failure.requestId})` : failure.message);
     } finally {
       setUploading(false);
     }
@@ -140,8 +129,13 @@ function DocumentsPageInner() {
                       ` (${Math.round(doc.classification_confidence * 100)}% sure)`}
                     {" · "}Uploaded {formatTimestamp(doc.uploaded_at)}
                   </p>
-                  {doc.processing_error && (
-                    <p className="mt-1 text-xs text-red-600">{doc.processing_error}</p>
+                  {doc.processing_status === "failed" && (
+                    <FailedDocument
+                      stage={doc.failed_stage}
+                      reason={doc.processing_error}
+                      documentId={doc.id}
+                      onRetried={documents.reload}
+                    />
                   )}
                 </li>
               ))}

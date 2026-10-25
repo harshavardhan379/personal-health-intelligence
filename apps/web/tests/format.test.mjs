@@ -7,6 +7,8 @@ import {
   eventTitle,
   eventTypeLabel,
   eventTypeStyle,
+  failedStageHint,
+  failedStageLabel,
   formatEventDate,
   formatTimestamp,
   groupByMonth,
@@ -154,4 +156,31 @@ test("timeline positions run from 0 to 100 percent by date", () => {
   assert.deepEqual(p.map((x) => x.percent), [0, 50, 100]);
   assert.deepEqual(timelinePositions([{ event_date: "2026-01-01" }]).map((x) => x.percent), [50]);
   assert.deepEqual(timelinePositions([]), []);
+});
+
+// --- where a failed document stopped ---------------------------------------------------------
+test("each pipeline stage has a plain-words label", () => {
+  assert.equal(failedStageLabel("read_file"), "reading the stored file");
+  assert.equal(failedStageLabel("parse"), "opening the document");
+  assert.equal(failedStageLabel("ocr"), "reading scanned text");
+  assert.equal(failedStageLabel("classify"), "working out the document type");
+  assert.equal(failedStageLabel("extract"), "finding values in the document");
+  assert.equal(failedStageLabel("save"), "saving the results");
+  assert.equal(failedStageLabel("interrupted"), "processing was interrupted");
+});
+
+test("no stage, or a stage the page does not know, gives no label rather than a wrong one", () => {
+  for (const odd of [null, undefined, "", "unknown", "made_up"]) {
+    assert.equal(failedStageLabel(odd), null);
+  }
+});
+
+test("the advice depends on the stage and always ends in something to do", () => {
+  assert.match(failedStageHint("parse"), /damaged|fresh copy/i);
+  assert.match(failedStageHint("ocr"), /clearer scan/i);
+  assert.match(failedStageHint("interrupted"), /restart/i);
+  assert.match(failedStageHint("read_file"), /upload the file again/i);
+  for (const stage of ["extract", "save", "classify", "unknown", null, undefined]) {
+    assert.equal(failedStageHint(stage), "Try again.");
+  }
 });

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import FailedDocument from "@/components/FailedDocument";
 import RequireAuth from "@/components/RequireAuth";
 import { Async, Badge, Card, EmptyState, ErrorState, LoadingState } from "@/components/states";
 import {
@@ -135,8 +136,16 @@ function DocumentDetail() {
               <p className="mt-1 text-sm text-slate-500">
                 {documentTypeLabel(d.classification)} · Uploaded {formatTimestamp(d.uploaded_at)}
               </p>
-              {d.processing_error && (
-                <p role="alert" className="mt-2 text-sm text-red-600">{d.processing_error}</p>
+              {d.processing_status === "failed" && (
+                <FailedDocument
+                  stage={d.failed_stage}
+                  reason={d.processing_error}
+                  documentId={d.id}
+                  onRetried={() => {
+                    doc.reload();
+                    events.reload();
+                  }}
+                />
               )}
             </>
           )}

@@ -53,6 +53,9 @@ export function ErrorState({
   return (
     <div role="alert" className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm">
       <p className="text-red-800">{failure.message}</p>
+      {failure.requestId && !failure.sessionExpired && !failure.notFound && (
+        <p className="mt-1 text-xs text-red-700">Reference: {failure.requestId}</p>
+      )}
       {failure.sessionExpired ? (
         <Link href="/login" className="mt-2 inline-block text-teal-700 underline">
           Log in
