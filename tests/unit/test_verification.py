@@ -154,3 +154,49 @@ def test_ordinary_claim_containing_not_is_not_treated_as_absence():
     claim = Claim(text="HbA1c did not change from 7.2%", citation_indices=[1])
     evidence = _evidence("HbA1c: 6.5 % (ref 4.0-5.6) 2026-04-10")
     assert match_claim_to_evidence(claim, evidence).label == "CONTRADICTED"
+
+
+# --- found by the AI regression suite (tests/regression) ------------------------------------------
+def test_a_whole_number_matches_the_float_the_evidence_prints():
+    """Lab values are stored as floats, so the evidence reads "160.0" while the model writes 160."""
+    evidence = _evidence("2026-01-10: LDL Cholesterol: 160.0 mg/dL")
+    claim = Claim(text="Your LDL cholesterol was 160 mg/dL", citation_indices=[1])
+    assert match_claim_to_evidence(claim, evidence).label == "SUPPORTED"
+    claim = Claim(text="Your LDL cholesterol was 160.0 mg/dL", citation_indices=[1])
+    assert match_claim_to_evidence(claim, evidence).label == "SUPPORTED"
+
+
+def test_the_float_in_the_claim_matches_the_whole_number_in_the_evidence():
+    evidence = _evidence("LDL Cholesterol: 160 mg/dL (ref <100) 2026-01-10")
+    claim = Claim(text="Your LDL cholesterol was 160.0 mg/dL", citation_indices=[1])
+    assert match_claim_to_evidence(claim, evidence).label == "SUPPORTED"
+
+
+def test_a_different_whole_number_is_still_contradicted():
+    evidence = _evidence("2026-01-10: LDL Cholesterol: 160.0 mg/dL")
+    for wrong in ("Your LDL cholesterol was 16 mg/dL", "Your LDL cholesterol was 1600 mg/dL",
+                  "Your LDL cholesterol was 161 mg/dL", "Your LDL cholesterol was 160.5 mg/dL"):
+        claim = Claim(text=wrong, citation_indices=[1])
+        assert match_claim_to_evidence(claim, evidence).label == "CONTRADICTED", wrong
+
+
+def test_trailing_zeros_do_not_make_two_numbers_differ():
+    evidence = _evidence("HbA1c: 7.20 % (ref 4.0-5.6) 2026-01-10")
+    claim = Claim(text="HbA1c was 7.2%", citation_indices=[1])
+    assert match_claim_to_evidence(claim, evidence).label == "SUPPORTED"
+
+
+def test_could_not_find_is_handled_like_couldnt_find():
+    """"could not" and "couldn't" are the same sentence: the topic must not include "could"."""
+    evidence = _evidence("2026-01-10: LDL Cholesterol: 160.0 mg/dL")
+    for phrase in ("I could not find your LDL cholesterol result",
+                   "I couldn't find your LDL cholesterol result"):
+        claim = Claim(text=phrase, citation_indices=[])
+        assert match_claim_to_evidence(claim, evidence).label == "CONTRADICTED", phrase
+
+
+def test_could_not_find_something_truly_absent_is_supported():
+    evidence = _evidence("2026-01-10: LDL Cholesterol: 160.0 mg/dL")
+    claim = Claim(text="I could not find a vitamin D result", citation_indices=[])
+    assert match_claim_to_evidence(claim, evidence).label == "SUPPORTED"
+

@@ -16,6 +16,7 @@ missed that; a check built purely on numbers would miss qualitative claims
 """
 
 import re
+from decimal import Decimal
 
 from packages.schemas.answer import Claim
 from packages.schemas.evidence import Evidence
@@ -67,7 +68,8 @@ _ABSENCE_FILLER = {
     "medical", "health", "current", "currently", "exist", "exists", "contain",
     "contains", "include", "includes", "included",
     # "I couldn't find your latest cholesterol result": the phrasing, not the topic.
-    "couldn", "can", "cannot", "unable", "able", "find", "see", "locate", "identify", "spot",
+    "couldn", "could", "can", "cannot", "unable", "able", "find", "see", "locate", "identify",
+    "spot",
     "did", "didn", "don", "wasn", "latest", "recent", "newest", "most", "result", "results",
     "reading", "readings", "measurement", "measurements",
 }
@@ -96,7 +98,10 @@ def _keywords(text: str) -> set:
 
 
 def _numbers(text: str) -> set:
-    return set(_NUMBER_RE.findall(text))
+    """The numbers in `text`, by VALUE: "160" and "160.0" are the same number. A lab value that
+    is a whole number is stored and rendered as a float ("160.0"), and comparing the digit strings
+    called a correct "LDL was 160 mg/dL" contradicted. Found by the AI regression suite."""
+    return {format(Decimal(n).normalize(), "f") for n in _NUMBER_RE.findall(text)}
 
 
 def _match_absence_claim(claim: Claim, all_evidence: list[Evidence]) -> ClaimVerification:
