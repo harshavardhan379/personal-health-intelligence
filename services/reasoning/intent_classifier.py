@@ -15,6 +15,7 @@ _TREND_KEYWORDS = [
 ]
 _TEMPORAL_KEYWORDS = [
     "changed", "change", "since", "last time", "recently", "latest", "new",
+    "most recent", "newest",
     # YGH-87 historical phrasing — "first documented"/"when did I start" are
     # handled by the same date-ordered evidence as "what changed recently":
     # both need explicit dates, just read in different directions.

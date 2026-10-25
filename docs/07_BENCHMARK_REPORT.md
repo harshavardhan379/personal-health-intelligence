@@ -371,6 +371,17 @@ the framework, not made silently.
 
 ## 10. Limitations
 
+- **The product has changed since this was measured.** The numbers describe commit `fe63f2f`.
+  Afterwards, using the assistant on the live stack found four defects that this benchmark's
+  temporal and uncertainty categories had already pointed at, and they were fixed: a "latest"
+  question is now answered from the matching facts newest-first (it had been given the whole
+  history oldest-first and answered with the January value); the verifier now rejects a claim that
+  calls an older fact the latest; "couldn't find" is recognised as an absence claim; and "None
+  noted" is no longer shown as an uncertainty. None of this was re-run on the locked test split
+  (the test run is one-time), so the Full system's temporal results here (12 of 32 strict, ORACLE)
+  are likely to differ for the current code. The safety classifier's refusal of ordinary questions
+  (section 7) was not changed.
+
 - **Fictional, templated data.** The documents are far more regular than real clinical documents
   even after degradation, and the questions are templated. Results say little about real records,
   real scans or real patients' wording.

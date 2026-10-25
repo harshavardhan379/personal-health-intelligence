@@ -8,6 +8,7 @@ entry point everything else (the API route, later M12 verification) calls.
 
 import json
 import logging
+import re
 import uuid
 
 from sqlalchemy.orm import Session
@@ -85,6 +86,14 @@ def _parse_claims(claims_raw: list, context: AssistantContext) -> tuple:
 
 
 _EMPTY_UNCERTAINTY = {"", "null", "none", "n/a", "na", "nil"}
+# "None noted", "No uncertainty.", "Nothing to report": small models phrase "nothing" many ways
+# (found by using the assistant, which showed a "What is uncertain" box saying "None noted").
+_NOTHING_UNCERTAIN_RE = re.compile(
+    r"^(?:none|no|nothing|nil|n/?a|not applicable)"
+    r"(?:\s+(?:noted|identified|found|significant|applicable|specific|major|to\s+(?:report|note)))*"
+    r"(?:\s+uncertaint(?:y|ies))?$",
+    re.IGNORECASE,
+)
 
 
 def _clean_uncertainty(value):
@@ -94,7 +103,8 @@ def _clean_uncertainty(value):
     if value is None:
         return None
     text = str(value).strip()
-    if text.lower().rstrip(".") in _EMPTY_UNCERTAINTY:
+    plain = text.strip(" \t\r\n.!\"'`*").strip()
+    if plain.lower() in _EMPTY_UNCERTAINTY or _NOTHING_UNCERTAIN_RE.match(plain):
         return None
     return text
 

@@ -586,6 +586,16 @@ blocks shows a fixed amber card (CLARIFY: "Could you rephrase that?") with no so
   model's uncertainty text "None noted" is shown as an uncertainty box, because `_clean_uncertainty`
   only drops null / none / n/a. (4) The "couldn't find" absence-check gap above. All four are the
   temporal/uncertainty weaknesses the benchmark measured.
+- **The four assistant defects above were then FIXED** (a follow-up to M15, `tests/unit/test_assistant_defects.py`,
+  66 tests, mutation-checked, and verified live: "What is my latest HbA1c?" now answers 6.5% three
+  times running): `services/retrieval/temporal.py` (`wants_latest`, `search_latest`: matching facts
+  newest first, nothing if the topic matches nothing, so the assistant abstains),
+  `services/verification/match.py` (a claim that calls a fact the latest is CONTRADICTED when a newer
+  fact on the topic is in the evidence; "couldn't find" and similar phrasings are absence claims),
+  `services/reasoning/generate.py` (`_clean_uncertainty` drops "None noted" and similar). Still true:
+  the model's own uncertainty text is not verified (it once said an earlier reading was "not
+  available" when it was in the evidence). **The benchmark report describes the code BEFORE these
+  fixes** (`fe63f2f`; noted in its limitations); the locked test split was not re-run.
 - **Test hygiene:** the review flow was tested by inserting one clearly synthetic pending event into the
   local test account and deleting it afterwards (the data is back to 2 documents, 7 confirmed facts).
 

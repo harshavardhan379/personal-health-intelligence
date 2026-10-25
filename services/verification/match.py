@@ -50,6 +50,13 @@ _ABSENCE_RE = re.compile(
     r"|evidence|information|data|records?|mentions?)\b",
     re.IGNORECASE,
 )
+# The same claim made in other words ("I couldn't find your latest cholesterol result").
+# Found by using the assistant: a correct "not in your records" answer was labelled unsupported.
+_NOT_FOUND_RE = re.compile(
+    r"\b(?:couldn'?t|could not|can'?t|cannot|can not|unable to|wasn'?t able to"
+    r"|was not able to|did not|didn'?t|do not|don'?t)\s+(?:find|see|locate|identify|spot)\b",
+    re.IGNORECASE,
+)
 # Words that make up the "is not in the records" phrasing itself. Whatever is
 # left in the claim is the topic that is being declared absent.
 _ABSENCE_FILLER = {
@@ -59,7 +66,23 @@ _ABSENCE_FILLER = {
     "data", "record", "records", "mention", "mentions", "present", "confirmed",
     "medical", "health", "current", "currently", "exist", "exists", "contain",
     "contains", "include", "includes", "included",
+    # "I couldn't find your latest cholesterol result": the phrasing, not the topic.
+    "couldn", "can", "cannot", "unable", "able", "find", "see", "locate", "identify", "spot",
+    "did", "didn", "don", "wasn", "latest", "recent", "newest", "most", "result", "results",
+    "reading", "readings", "measurement", "measurements",
 }
+
+# A claim that calls something the latest ("Your latest HbA1c is 7.2%"). The cited fact must be
+# the newest one on that topic in the evidence: found by using the assistant, which stated the
+# January value as the latest while the April one was in the evidence and the claim was "supported".
+_RECENCY_CLAIM_RE = re.compile(r"\b(?:latest|most recent|newest|current(?:ly)?)\b", re.IGNORECASE)
+_RECENCY_WORDS = {
+    "latest", "most", "recent", "newest", "current", "currently", "reading", "readings",
+    "result", "results", "measurement", "measurements", "value", "values", "level", "levels",
+}
+# "Your latest HbA1c": "your" is how the claim is phrased, not what it is about.
+_CLAIM_PRONOUNS = {"your", "you", "yours", "own", "mine", "ours"}
+_DATE_IN_TEXT = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 # Below this fraction of claim keywords found in the evidence text, there's
 # not enough topical overlap to call it SUPPORTED even if numbers happen to
@@ -106,11 +129,57 @@ def _match_absence_claim(claim: Claim, all_evidence: list[Evidence]) -> ClaimVer
     )
 
 
+def _evidence_date(item: Evidence):
+    found = _DATE_IN_TEXT.search(item.text)
+    return found.group(0) if found else None
+
+
+def _check_recency(claim: Claim, all_evidence: list[Evidence]):
+    """CONTRADICTED when the claim calls its cited fact the latest and the evidence holds a newer
+    fact on the same topic; None when this check does not apply (the normal check then runs)."""
+    if not _RECENCY_CLAIM_RE.search(claim.text):
+        return None
+    topic = _keywords(claim.text) - _RECENCY_WORDS - _CLAIM_PRONOUNS
+    if not topic:
+        return None
+
+    def on_topic(item: Evidence) -> bool:
+        lowered = item.text.lower()
+        return all(word in lowered for word in topic)
+
+    dated = [(d, e) for e in all_evidence if on_topic(e) and (d := _evidence_date(e))]
+    cited_dates = [
+        d
+        for i in claim.citation_indices
+        if 1 <= i <= len(all_evidence)
+        and on_topic(all_evidence[i - 1])
+        and (d := _evidence_date(all_evidence[i - 1]))
+    ]
+    if not dated or not cited_dates:
+        return None
+    newest = max(d for d, _ in dated)
+    if max(cited_dates) >= newest:
+        return None
+    return ClaimVerification(
+        claim_text=claim.text,
+        label="CONTRADICTED",
+        citation_indices=claim.citation_indices,
+        explanation=(
+            "Claim calls this the most recent, but the evidence has a more recent one "
+            f"dated {newest}."
+        ),
+    )
+
+
 def match_claim_to_evidence(
     claim: Claim, all_evidence: list[Evidence]
 ) -> ClaimVerification:
-    if _ABSENCE_RE.search(claim.text):
+    if _ABSENCE_RE.search(claim.text) or _NOT_FOUND_RE.search(claim.text):
         return _match_absence_claim(claim, all_evidence)
+
+    stale = _check_recency(claim, all_evidence)
+    if stale is not None:
+        return stale
 
     cited = [
         all_evidence[i - 1]

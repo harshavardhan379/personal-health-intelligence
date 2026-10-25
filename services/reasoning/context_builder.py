@@ -22,7 +22,7 @@ from packages.schemas.intent import QueryIntent
 from services.reasoning.intent_classifier import classify_intent
 from services.retrieval.comparison import search_comparison
 from services.retrieval.hybrid import hybrid_search
-from services.retrieval.temporal import search_temporal
+from services.retrieval.temporal import search_latest, search_temporal, wants_latest
 from services.retrieval.trend_evidence import search_trend
 
 
@@ -52,7 +52,12 @@ def build_context(db: Session, user_id: uuid.UUID, question: str) -> AssistantCo
     # retrieval path (YGH-85, YGH-86, trend fix); everything else falls back
     # to the general-purpose relevance search.
     if intent == "TEMPORAL":
-        evidence = search_temporal(db, user_id)
+        # "latest" wants the newest matching facts first; "first documented" / "what changed"
+        # want the date-ordered history (services/retrieval/temporal.py).
+        if wants_latest(question):
+            evidence = search_latest(db, user_id, question)
+        else:
+            evidence = search_temporal(db, user_id)
     elif intent == "TREND":
         evidence = search_trend(db, user_id)
     elif intent == "COMPARISON":
