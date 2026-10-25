@@ -7,16 +7,32 @@ Upload -> Processing -> Processed -> Review required -> Failed states).
 
 import logging
 import uuid
+from datetime import datetime
 from typing import Optional
+from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Response,
+    UploadFile,
+)
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from packages.schemas.db import SessionLocal, get_db
 from packages.schemas.models import Document, HealthEvent, Provenance, User
 from services.api.app.core.deps import get_current_user
-from services.api.app.core.storage import UploadValidationError, save_upload, validate_upload
+from services.api.app.core.storage import (
+    ALLOWED_MIME_TYPES,
+    UploadValidationError,
+    read_upload,
+    save_upload,
+    validate_upload,
+)
 from services.document_processing.normalize import ProcessingError, process_document
 from services.extraction.pipeline import extract_all
 
@@ -32,8 +48,28 @@ class DocumentOut(BaseModel):
     classification: Optional[str] = None
     classification_confidence: Optional[float] = None
     processing_error: Optional[str] = None
+    uploaded_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class DocumentProvenanceOut(BaseModel):
+    page_number: int
+    quote: str
+
+
+class DocumentEventOut(BaseModel):
+    """An event extracted from one document, whatever its review status, with where in the
+    document it was found (YGH-118)."""
+
+    id: str
+    event_type: str
+    event_date: str
+    event_date_precision: str
+    data: dict
+    confidence: float
+    review_status: str
+    provenance: list[DocumentProvenanceOut]
 
 
 def _to_out(doc: Document) -> DocumentOut:
@@ -45,6 +81,7 @@ def _to_out(doc: Document) -> DocumentOut:
         classification=doc.classification,
         classification_confidence=doc.classification_confidence,
         processing_error=doc.processing_error,
+        uploaded_at=doc.uploaded_at,
     )
 
 
@@ -171,13 +208,75 @@ def list_documents(
     return [_to_out(d) for d in docs]
 
 
+def _owned_document(db: Session, user: User, document_id: uuid.UUID) -> Document:
+    doc = db.get(Document, document_id)
+    if doc is None or doc.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return doc
+
+
 @router.get("/{document_id}", response_model=DocumentOut)
 def get_document_status(
     document_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    doc = db.get(Document, document_id)
-    if doc is None or doc.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Document not found")
-    return _to_out(doc)
+    return _to_out(_owned_document(db, current_user, document_id))
+
+
+@router.get("/{document_id}/file")
+def get_document_file(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The original uploaded file, for the document page (YGH-118). Owner only."""
+    doc = _owned_document(db, current_user, document_id)
+    try:
+        content = read_upload(doc.storage_path)
+    except OSError as exc:  # missing, or a path outside the storage folder
+        raise HTTPException(status_code=404, detail="The original file is not available") from exc
+
+    allowed = doc.mime_type in ALLOWED_MIME_TYPES
+    disposition = "inline" if allowed else "attachment"
+    return Response(
+        content=content,
+        media_type=doc.mime_type if allowed else "application/octet-stream",
+        headers={
+            "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(doc.filename)}",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@router.get("/{document_id}/events", response_model=list[DocumentEventOut])
+def get_document_events(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Everything extracted from this document and its review status. Owner only."""
+    doc = _owned_document(db, current_user, document_id)
+    events = (
+        db.query(HealthEvent)
+        .filter(HealthEvent.document_id == doc.id, HealthEvent.user_id == current_user.id)
+        .order_by(HealthEvent.event_date.asc(), HealthEvent.event_type.asc())
+        .all()
+    )
+    return [
+        DocumentEventOut(
+            id=str(e.id),
+            event_type=e.event_type,
+            event_date=e.event_date.isoformat(),
+            event_date_precision=e.event_date_precision,
+            data=e.data,
+            confidence=e.confidence,
+            review_status=e.review_status,
+            provenance=[
+                DocumentProvenanceOut(page_number=p.page_number, quote=p.quote)
+                for p in e.provenance
+            ],
+        )
+        for e in events
+    ]

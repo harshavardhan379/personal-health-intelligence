@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from services.api.app.api.v1 import (
+    account,
     assistant,
     auth,
     documents,
@@ -44,3 +45,4 @@ app.include_router(timeline.router, prefix="/api/v1")
 app.include_router(trends.router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")
 app.include_router(assistant.router, prefix="/api/v1")
+app.include_router(account.router, prefix="/api/v1")
