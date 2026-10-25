@@ -1,0 +1,105 @@
+# The production stack (YGH-103, YGH-104, YGH-106): Postgres, a one-shot migration, the API and the
+# web app. Every secret comes from the environment; nothing is defaulted, so a missing one stops
+# `docker compose` with a clear message instead of starting something unsafe.
+#
+#   cp .env.production.example .env.production      # then fill in every value
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# The API refuses to start if JWT_SECRET is the development default or too short, if the database
+# password is the development one, or if CORS_ORIGINS is empty or "*" (Settings.production_problems).
+#
+# Nothing here is published except the two ports a browser needs. Put TLS in front (a reverse proxy
+# or the host's load balancer): the API sends Strict-Transport-Security in production, which is only
+# honest behind HTTPS. The model (Ollama) is NOT part of this file: point OLLAMA_BASE_URL at one you
+# run, or pick a hosted provider (and read docs/08_PRIVACY.md, section 4, first).
+name: phi-prod
+
+x-api-environment: &api-environment
+  ENVIRONMENT: production
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB}
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+  CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS, for example ["https://app.example.com"]}
+  STORAGE_DIR: /data/storage
+  LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  XAI_API_KEY: ${XAI_API_KEY:-}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    <<: *hardening
+    cap_drop: []  # the postgres image's entrypoint needs to switch user; it is not exposed anyway
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    image: phi-api:prod
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      <<: *api-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    image: phi-api:prod
+    <<: *hardening
+    environment:
+      <<: *api-environment
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - storage:/data/storage
+    read_only: true
+    tmpfs:
+      - /tmp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: apps/web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL, the API's public address}
+    image: phi-web:prod
+    <<: *hardening
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  storage:

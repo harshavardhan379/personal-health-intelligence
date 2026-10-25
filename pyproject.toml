@@ -14,3 +14,21 @@ ignore = ["B008"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+# Added by directory in tests/conftest.py, so `pytest -m "not integration"` skips the Postgres tests.
+markers = [
+    "unit: fast tests with no external service (tests/unit)",
+    "safety: the prohibited and high-risk query suite (tests/safety)",
+    "benchmark: the evaluation framework (tests/evaluation)",
+    "regression: AI regression, fixed questions with expected properties (tests/regression)",
+    "integration: needs Postgres, built from the real migrations (tests/integration, tests/regression)",
+]
+
+[tool.coverage.run]
+source = ["services", "packages"]
+branch = false
+
+[tool.coverage.report]
+skip_covered = true
+show_missing = true
+# The one thing the suite cannot cover here: the OCR branches need the tesseract program.
+exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:"]

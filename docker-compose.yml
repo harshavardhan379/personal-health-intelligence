@@ -1,3 +1,5 @@
+# DEVELOPMENT stack. The production one is docker-compose.prod.yml; the API image defaults to
+# ENVIRONMENT=production, so this file says development explicitly.
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -20,6 +22,7 @@ services:
       context: .
       dockerfile: services/api/Dockerfile
     environment:
+      ENVIRONMENT: development
       DATABASE_URL: postgresql+psycopg://phi:phi_dev_password@postgres:5432/phi
       CORS_ORIGINS: '["http://localhost:3000"]'
       JWT_SECRET: dev-only-secret-change-me

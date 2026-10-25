@@ -27,9 +27,12 @@ LLM calls, real bugs found and fixed through live testing, not just "it imports.
 
 - **Repo:** `harshavardhan379/personal-health-intelligence` on GitHub, branch `main`.
 - **Linear:** team `YGH`, project "Personal Health Intelligence App" — https://linear.app/harshavardhan-p/team/YGH
-- **Milestones M0 (partially), M1 through M16: Done** (M11b fine-tuning is a parallel track, not
-  started). M14's report has one open item: section 9 waits for the owner's human audit of the
-  benchmark (`audit_review.csv`). M17 (security & data lifecycle), M18 and M19 are next.
+- **Milestones M0 (partially), M1 through M18: Done**, with one exception: **YGH-106 (deploy the
+  production MVP) is open**: the production images, compose file and environment separation are
+  built and were verified by running the stack locally, but nothing has been deployed to a public
+  host (`docs/11_DEPLOYMENT.md`). M11b fine-tuning is a parallel track, not started. M14's report has
+  one open item: section 9 waits for the owner's human audit of the benchmark (`audit_review.csv`).
+  M19 is next.
 - **Latest commit:** see `git log` (M12 landed as `2c5447f`, followed by a live-testing fix commit). Run `git log --oneline | cat` to get the real current state — this
   number is stale the moment new work lands.
 - **126 original Linear issues + 11 M11b (fine-tuning) issues added mid-project = 137 total.**
@@ -426,11 +429,11 @@ Or use `http://localhost:8000/docs` — click **Authorize**, paste the raw token
 - **No frontend page for the assistant.** `apps/web/src/app/assistant/page.tsx` and
   `settings/page.tsx` are empty placeholders (`PagePlaceholder` component). The assistant is
   fully functional via the API; wiring a real chat UI is M15 (Frontend Productization).
-- **No automated integration tests.** Only 394 tests exist (48 unit, 346 safety), all pure-function with zero DB/model dependency
-  (`tests/unit/`, zero DB/network dependency, run in ~0.2s). Every multi-service flow (upload
-  pipeline, the AI assistant end to end, cross-user isolation) was verified **manually, live**,
-  and the result documented in each Linear issue's comment — formalizing these into
-  `tests/integration/` is M18 (YGH-97, YGH-98, YGH-99).
+- **Automated tests:** 2,205 Python tests (405 unit, 573 safety, 1,087 benchmark framework, 19 AI
+  regression, 121 integration on a real Postgres) and 40 web tests, 97.7% coverage, run by CI
+  (`.github/workflows/ci.yml`; see `docs/10_TESTING_AND_CI.md`). **Not built:** a browser end-to-end
+  test (M19, YGH-107). The CI workflow file itself has not run on GitHub; every command in it was
+  run locally and passes.
 - **No log aggregation, alerting or persistent metrics.** M16 added request IDs, JSON logging, AI
   tracing, in-process metrics and retry/timeout policies (see `docs/OBSERVABILITY.md`), but the
   metrics are per process and reset on restart, and nothing is shipped anywhere.
@@ -438,8 +441,7 @@ Or use `http://localhost:8000/docs` — click **Authorize**, paste the raw token
 - **Safety layer is built (M13)** but rule-based, English-only, and has no conversation memory (each
   question is classified alone). See `docs/02_SAFETY_SPEC.md` section 9. Run `pytest tests/safety`
   on every AI-related change. CI wiring is M18.
-- **Deployment, CI, production Docker, security review, data-deletion UI:** all unstarted (M17,
-  M18).
+- **Deployment to a public host:** not done (YGH-106). Everything needed to do it is built (M18).
 
 ---
 
@@ -574,11 +576,9 @@ blocks shows a fixed amber card (CLARIFY: "Could you rephrase that?") with no so
 - **A bug fixed that was older than M15:** `lib/auth.tsx` cleared the saved login on ANY failure of the
   session check, so a backend restart or a network blip silently logged everyone out. Now only a 401
   clears it; otherwise `RequireAuth` shows "could not be reached" with Try again and keeps the login.
-- **Settings: data deletion is NOT built.** The ticket asked for it, but deletion is M17 (YGH-119 data
-  deletion, YGH-121 account deletion): destructive, and needs files, embeddings and logs handled. The
-  settings page says so plainly, with disabled buttons, and shows exactly what is stored. Wire the
-  buttons when those tickets land. Privacy is informational (is the model local or an outside
-  service), not a set of controls.
+- **Settings: data deletion** was a disabled placeholder in M15 and is built in M17: delete one
+  document (its page), all of one's data, or the account (Settings), each permanent and the last two
+  asking for the password again (`docs/08_PRIVACY.md` section 3).
 - **Product defects found by using it (NOT fixed; they affect what the benchmark measured, so a fix
   should be versioned):** (1) "What is my latest HbA1c?" is routed to the TEMPORAL path, which returns
   the whole history oldest-first; the small model answered with the first item, the January 7.2%,
@@ -622,15 +622,51 @@ Built, tested (`test_observability.py`, `test_ai_tracing.py`, `test_providers.py
   with stand-ins only; the Postgres lock-order reasoning (rollback before marking failed) is
   tested via session state, not by reproducing a lock wait; stale recovery assumes one API process.
 
-### M17 — Security & Data Lifecycle
-Formal security review (auth, IDOR, file upload, injection, prompt injection, XSS/CSRF, secrets),
-real data deletion and account deletion (cascading), a sensitive-log audit, privacy documentation.
+### M17 — Security & Data Lifecycle (DONE: YGH-115, 117, 119, 121, 123, 125)
+References: `docs/09_SECURITY_REVIEW.md` (17 findings, fixed or accepted, with tests), `docs/08_PRIVACY.md`.
+- **Found and fixed by using the system** (each pinned by a test that was mutation-checked): request
+  bodies, including a password, reached the logs through exception text; validation errors echoed
+  the input and, for a non-JSON body, were a 500; the uvicorn access log printed query strings
+  (a search is the user's words); a development JWT secret was accepted anywhere; no login
+  throttling; uploads were trusted by extension and declared type; error responses dropped
+  `Retry-After`; no security headers; unbounded fact edits; bcrypt silently truncating long
+  passwords; interactive API docs in production; **109 vulnerabilities in 7 Python packages** and a
+  critical advisory in the pinned `next` (both upgraded; `pip-audit` and `npm audit` clean, and CI
+  repeats them on every push); an image with no OCR that ran as root.
+- **File validation (YGH-117):** name, extension, declared type and the file's own bytes must agree;
+  PDFs must parse, not be encrypted, 1 to 100 pages; images must decode and be under 50 M pixels;
+  the read stops at 25 MB. A valid multi-picture JPEG (Pillow format `MPO`) is accepted.
+- **Deletion (YGH-119/121):** `DELETE /documents/{id}`, `DELETE /account/data`, `DELETE /account`.
+  One transaction, files removed after the commit, password re-asked for the bulk two, the same
+  rate limit as login. Order matters (facts first: their foreign keys cascade to sources and
+  embeddings; `provenance.document_id` and `embeddings.document_id` do not cascade).
+- **Rate limits** (in memory, per process): login 5 failures / 15 min per address+account,
+  registration 10/hour per address, the assistant 30/min per user.
+- **Prompt hardening:** the system prompt now says the evidence is data, not instructions
+  (`PROMPT_VERSION = answer-v2`; the hash test pins the text).
+- **Verifier fixes found by the AI regression suite:** numbers are compared by value (`160` equals
+  `160.0`), and "could not find" is handled like "couldn't find". **The benchmark report describes
+  the verifier before these fixes** (as it already did for the four assistant defects).
+- **Known gaps, not hidden:** two personal-history phrasings get CLARIFY instead of an answer
+  (`KNOWN_CLARIFY` in `tests/safety/test_safety_endpoint.py`); CSP needs `'unsafe-inline'` scripts;
+  token in `localStorage` with 24 h, no revocation; no email verification or MFA; no data export.
 
-### M18 — Testing, CI & Production
-Formalizes everything that's been manually verified so far into real automated integration tests
-(YGH-97 upload pipeline, YGH-98 AI pipeline, YGH-99 authorization isolation), AI and safety
-regression test suites, a CI pipeline (lint/typecheck/unit/integration/AI-regression/safety/build),
-production Docker configuration, separated dev/test/prod environments, actual deployment.
+### M18 — Testing, CI & Production (DONE except YGH-106)
+References: `docs/10_TESTING_AND_CI.md`, `docs/11_DEPLOYMENT.md`.
+- **YGH-96..101 tests:** integration suite on a real Postgres built from the migrations
+  (`tests/integration`), AI regression (`tests/regression/ai_cases.json`), safety regression through
+  the real endpoint, 97.7% coverage with a 95% gate. Route enumeration for the "every route needs a
+  login" test uses the OpenAPI schema (FastAPI no longer lists included routers in `app.routes`) and
+  pins the count (25).
+- **YGH-102 CI:** `.github/workflows/ci.yml` (backend, web, docker, audit). Not yet run on GitHub.
+- **YGH-103 production Docker:** `services/api/Dockerfile` (OCR installed, non-root, healthcheck,
+  one worker, no access log), `apps/web/Dockerfile` (standalone, non-root), `docker-compose.prod.yml`
+  (read-only filesystems, dropped capabilities, no published database port), `.dockerignore`s.
+  Verified by running it: `docs/11_DEPLOYMENT.md` section 5.
+- **YGH-104 environments:** `ENVIRONMENT=development|test|production`; production refuses unsafe
+  settings; `requirements.txt` is runtime-only and `requirements-dev.txt` adds tests, lint and the
+  benchmark's libraries.
+- **YGH-106 deploy: OPEN.** Needs a host, domain, TLS and spend only the owner can provide.
 
 ### M19 — Final Validation & Launch
 End-to-end synthetic demo dataset with a deliberate contradiction and a deliberate missing-info

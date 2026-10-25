@@ -1,0 +1,28 @@
+# Keeps the API image small and keeps secrets and local data out of it (YGH-103).
+.git
+.github
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# Secrets and local data must never be baked into an image.
+.env
+.env.*
+!.env.example
+storage
+*.pem
+*.key
+
+# Not part of the API.
+apps
+tests
+docs
+benchmarks
+experiments
+evaluation

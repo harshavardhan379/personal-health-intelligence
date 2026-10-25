@@ -1,0 +1,143 @@
+# Continuous integration (YGH-102). Every push to main and every pull request runs:
+#   lint -> unit + benchmark-framework tests -> safety regression -> AI regression ->
+#   integration tests on a real Postgres -> web lint/types/tests/build -> Docker builds -> audits
+#
+# Integration tests need Postgres with pgvector; this workflow starts one as a service container on
+# host port 5433 (the project's default) and sets REQUIRE_POSTGRES=1, so if the database were ever
+# missing those tests FAIL rather than skip: a skipped suite must never look like a passing one.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (lint, tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: phi
+          POSTGRES_PASSWORD: phi_dev_password
+          POSTGRES_DB: phi
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U phi"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      REQUIRE_POSTGRES: "1"
+      ENVIRONMENT: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Safety regression (the prohibited and high-risk query suite)
+        run: pytest -m safety -v --tb=short
+
+      - name: AI regression (fixed questions, expected answer properties)
+        run: pytest tests/regression -v --tb=short
+
+      - name: Everything, with the coverage gate (unit, benchmark framework, safety, regression, integration)
+        run: pytest tests --cov=services --cov=packages --cov-report=term-missing:skip-covered --cov-fail-under=95
+
+  web:
+    name: Web (lint, types, tests, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Tests
+        run: npm test
+      - name: Build
+        run: npm run build
+
+  docker:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the API image
+        run: docker build -f services/api/Dockerfile -t phi-api:ci .
+      - name: Build the web image
+        run: docker build -t phi-web:ci --build-arg NEXT_PUBLIC_API_URL=https://api.example.com apps/web
+      - name: The production compose file is valid
+        run: >
+          docker compose -f docker-compose.prod.yml config --quiet
+        env:
+          POSTGRES_USER: phi
+          POSTGRES_DB: phi
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          JWT_SECRET: ci-only-not-a-secret-ci-only-not-a-secret
+          CORS_ORIGINS: '["https://app.example.com"]'
+          NEXT_PUBLIC_API_URL: https://api.example.com
+      - name: The API image refuses to start on development settings
+        run: |
+          set +e
+          out=$(docker run --rm -e JWT_SECRET=dev-only-secret-change-me phi-api:ci python -c "
+          from fastapi.testclient import TestClient
+          from services.api.main import app
+          with TestClient(app): pass" 2>&1)
+          status=$?
+          echo "$out" | tail -3
+          test $status -ne 0 && echo "$out" | grep -q "Unsafe production settings"
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python dependencies (runtime set)
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --strict
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Web dependencies (shipped set)
+        working-directory: apps/web
+        run: npm audit --omit=dev --audit-level=high
