@@ -6,6 +6,7 @@ import {
   LABEL_TEXT,
   documentHref,
   isBlocked,
+  sourceLabel,
   splitCitations,
 } from "../src/lib/assistant-format.ts";
 
@@ -57,4 +58,11 @@ test("every verification label has plain-language text", () => {
 test("the example questions are real questions", () => {
   assert.equal(EXAMPLE_QUESTIONS.length, 3);
   for (const q of EXAMPLE_QUESTIONS) assert.ok(q.endsWith("?"), q);
+});
+
+test("a source is labelled with its file and page, and never with page 0", () => {
+  assert.equal(sourceLabel("lab.pdf", 2), "lab.pdf · page 2");
+  assert.equal(sourceLabel("lab.pdf", 0), "lab.pdf");
+  assert.equal(sourceLabel(null, 3), "Source document unavailable · page 3");
+  assert.equal(sourceLabel(null, 0), "Source document unavailable");
 });

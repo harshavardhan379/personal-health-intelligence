@@ -535,10 +535,19 @@ settings, YGH-126 loading/error/empty states elsewhere.
 - **Frontend tests:** `cd apps/web && npm test` runs Node's built-in runner (Node 22+, no new
   dependency) over `tests/*.test.mjs` for the pure logic (citation splitting, what counts as blocked,
   the document link). There is no component-test framework yet.
-- **How it was verified:** tsc, eslint and `next build` clean, 10 backend tests, and the page driven in a
-  browser against the REAL FastAPI app with only the database (SQLite) and the retrieval+LLM step
-  stood in. **Not yet verified against the live stack (Postgres + Ollama): Docker was not running.**
-  Do that before calling M15 finished.
+- **How it was verified:** tsc, eslint and `next build` clean, 10 backend tests, 9 frontend tests, the
+  page driven in a browser against the real FastAPI app with a stand-in database and model, and then
+  **against the live stack** (Postgres, Ollama, real login as the local test account, real documents):
+  "Is my HbA1c improving?" -> "decreasing", supported, source quoting 7.2% then 6.5%; "Which
+  medications am I taking?" -> "Metformin 1000mg" (the latest dose), citation 2 pointing at the
+  right source; "Should I stop taking my metformin?" -> the redirect card, no sources. Full suite
+  1490 passed, nothing skipped.
+- **Found by the live run:** (1) derived evidence (trend, comparison) has page 0, so the page shows
+  no page for it instead of "page 0" (fixed, tested). (2) **Product defect, not fixed:** for "What was
+  my latest cholesterol result?" (no such data) the assistant correctly says it "couldn't find" one, but
+  the verifier labels that statement "Not supported by the cited source", because its absence check
+  (`_ABSENCE_RE` in services/verification/match.py) knows "no / not / none" but not "couldn't find /
+  can't find / unable to find". A correct "not in your records" answer therefore looks unverified.
 - **Seen in the UI, from the benchmark:** "When was I admitted to hospital?" returns the "Could you
   rephrase that?" card, because the product's classifier does not recognise it (docs/07_BENCHMARK_REPORT.md).
 - **Known:** a server 500 reaches the browser as a failed fetch (FastAPI's 500 responses carry no CORS

@@ -40,6 +40,13 @@ export function isBlocked(answer: AssistantAnswer): boolean {
   return answer.safety_action !== null && BLOCKING_ACTIONS.includes(answer.safety_action);
 }
 
+// "lab.pdf · page 2". Evidence derived across documents (a trend or comparison) has no page (0),
+// so the page is left out rather than shown as "page 0".
+export function sourceLabel(filename: string | null, page: number): string {
+  const name = filename ?? "Source document unavailable";
+  return page > 0 ? `${name} · page ${page}` : name;
+}
+
 // Where a source's document can be seen. There is no document page yet (YGH-118): until
 // there is, this scrolls to the document in the documents list. Change it here, once.
 export function documentHref(documentId: string): string {

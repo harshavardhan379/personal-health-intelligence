@@ -5,6 +5,7 @@ import {
   VerificationLabel,
   documentHref,
   isBlocked,
+  sourceLabel,
   splitCitations,
 } from "@/lib/assistant-format";
 
@@ -128,7 +129,7 @@ export default function AnswerCard({ entryId, answer }: { entryId: number; answe
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-slate-600">
                   <span className="font-medium">
-                    [{item.number}] {item.filename ?? "Source document unavailable"} · page {item.page}
+                    [{item.number}] {sourceLabel(item.filename, item.page)}
                   </span>
                   {item.filename && (
                     <Link href={documentHref(item.document_id)} className="text-teal-700 underline">
