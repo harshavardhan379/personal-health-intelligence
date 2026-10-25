@@ -1,10 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useRef, useState } from "react";
 import RequireAuth from "@/components/RequireAuth";
-import { apiFetch, ApiError, getToken } from "@/lib/api";
+import { Async, Badge, Card, EmptyState } from "@/components/states";
+import { getToken } from "@/lib/api";
+import {
+  documentStatusLabel,
+  documentStatusStyle,
+  documentTypeLabel,
+  formatTimestamp,
+} from "@/lib/format";
+import { useApi } from "@/lib/useApi";
 
-type DocumentOut = {
+export type DocumentOut = {
   id: string;
   filename: string;
   mime_type: string;
@@ -12,47 +21,34 @@ type DocumentOut = {
   classification: string | null;
   classification_confidence: number | null;
   processing_error: string | null;
+  uploaded_at: string | null;
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  uploaded: "Uploaded",
-  processing: "Processing...",
-  processed: "Processed",
-  failed: "Failed",
-};
+// Poll only while something is still being processed, so a finished list is left alone.
+function pollWhileProcessing(docs: DocumentOut[] | null): number | undefined {
+  return docs?.some((d) => d.processing_status === "uploaded" || d.processing_status === "processing")
+    ? 3000
+    : undefined;
+}
 
 function DocumentsPageInner() {
-  const [documents, setDocuments] = useState<DocumentOut[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const documents = useApi<DocumentOut[]>("/documents", {
+    pollMs: pollWhileProcessing,
+    fallback: "Could not load documents",
+  });
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const docs = await apiFetch<DocumentOut[]>("/documents");
-      setDocuments(docs);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not load documents");
-    }
-  }, []);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount
-    load();
-    // Poll so "Processing..." flips to "Processed" without a manual refresh.
-    const interval = setInterval(load, 3000);
-    return () => clearInterval(interval);
-  }, [load]);
 
   async function onUpload(e: React.FormEvent) {
     e.preventDefault();
     const file = fileInput.current?.files?.[0];
     if (!file) {
-      setError("Please choose a file first.");
+      setUploadError("Please choose a file first.");
       return;
     }
 
-    setError(null);
+    setUploadError(null);
     setUploading(true);
     try {
       const formData = new FormData();
@@ -68,9 +64,15 @@ function DocumentsPageInner() {
         throw new Error(body?.error?.message || `Upload failed (${res.status})`);
       }
       if (fileInput.current) fileInput.current.value = "";
-      await load();
+      documents.reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setUploadError(
+        err instanceof TypeError
+          ? "The upload could not reach the server. Please try again."
+          : err instanceof Error
+            ? err.message
+            : "Upload failed",
+      );
     } finally {
       setUploading(false);
     }
@@ -78,11 +80,13 @@ function DocumentsPageInner() {
 
   return (
     <div className="grid gap-6 md:grid-cols-[1fr_1.4fr]">
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-xl font-semibold">Upload a report</h2>
-        <p className="mt-1 text-sm text-slate-500">PDF, JPG, JPEG or PNG. Synthetic data only.</p>
+      <Card title="Upload a report" description="PDF, JPG, JPEG or PNG. Synthetic data only.">
         <form onSubmit={onUpload} className="mt-4 flex flex-col gap-3">
+          <label htmlFor="file" className="sr-only">
+            Choose a file to upload
+          </label>
           <input
+            id="file"
             ref={fileInput}
             type="file"
             accept=".pdf,.jpg,.jpeg,.png"
@@ -95,48 +99,56 @@ function DocumentsPageInner() {
           >
             {uploading ? "Uploading..." : "Upload"}
           </button>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {uploadError && (
+            <p role="alert" className="text-sm text-red-600">
+              {uploadError}
+            </p>
+          )}
         </form>
-      </section>
+      </Card>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-xl font-semibold">Your documents</h2>
-        {documents.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">No documents yet.</p>
-        ) : (
-          <ul className="mt-3 divide-y divide-slate-200">
-            {documents.map((doc) => (
-              <li key={doc.id} id={`doc-${doc.id}`} className="scroll-mt-4 py-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-medium">{doc.filename}</span>
-                  <span
-                    className={
-                      "shrink-0 rounded-full px-2 py-0.5 text-xs " +
-                      (doc.processing_status === "failed"
-                        ? "bg-red-100 text-red-700"
-                        : doc.processing_status === "processed"
-                          ? "bg-green-100 text-green-700"
-                          : "bg-slate-100 text-slate-600")
-                    }
-                  >
-                    {STATUS_LABEL[doc.processing_status] || doc.processing_status}
-                  </span>
-                </div>
-                {doc.classification && (
+      <Card title="Your documents">
+        <Async
+          state={documents}
+          loadingLabel="Loading your documents..."
+          isEmpty={(docs) => docs.length === 0}
+          empty={
+            <EmptyState title="No documents yet">
+              Upload a lab report, prescription or discharge summary and its facts will appear
+              here for you to review.
+            </EmptyState>
+          }
+        >
+          {(docs) => (
+            <ul className="mt-3 divide-y divide-slate-200">
+              {docs.map((doc) => (
+                <li key={doc.id} id={`doc-${doc.id}`} className="scroll-mt-4 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <Link
+                      href={`/documents/${doc.id}`}
+                      className="truncate text-sm font-medium text-teal-800 hover:underline"
+                    >
+                      {doc.filename}
+                    </Link>
+                    <Badge className={`shrink-0 ${documentStatusStyle(doc.processing_status)}`}>
+                      {documentStatusLabel(doc.processing_status)}
+                    </Badge>
+                  </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    Classified as {doc.classification}
-                    {doc.classification_confidence != null &&
-                      ` (${Math.round(doc.classification_confidence * 100)}% confidence)`}
+                    {documentTypeLabel(doc.classification)}
+                    {doc.classification_confidence !== null &&
+                      ` (${Math.round(doc.classification_confidence * 100)}% sure)`}
+                    {" · "}Uploaded {formatTimestamp(doc.uploaded_at)}
                   </p>
-                )}
-                {doc.processing_error && (
-                  <p className="mt-1 text-xs text-red-600">{doc.processing_error}</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                  {doc.processing_error && (
+                    <p className="mt-1 text-xs text-red-600">{doc.processing_error}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Async>
+      </Card>
     </div>
   );
 }

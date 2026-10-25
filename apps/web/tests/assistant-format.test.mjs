@@ -45,8 +45,10 @@ test("only the safety actions that stop an answer count as blocked", () => {
   }
 });
 
-test("a source's document link scrolls to that document in the documents list", () => {
-  assert.equal(documentHref("abc-123"), "/documents#doc-abc-123");
+test("a source links to its document page, at the page it was found on when there is one", () => {
+  assert.equal(documentHref("abc-123"), "/documents/abc-123");
+  assert.equal(documentHref("abc-123", 0), "/documents/abc-123");
+  assert.equal(documentHref("abc-123", 3), "/documents/abc-123?page=3");
 });
 
 test("every verification label has plain-language text", () => {

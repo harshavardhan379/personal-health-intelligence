@@ -47,10 +47,9 @@ export function sourceLabel(filename: string | null, page: number): string {
   return page > 0 ? `${name} · page ${page}` : name;
 }
 
-// Where a source's document can be seen. There is no document page yet (YGH-118): until
-// there is, this scrolls to the document in the documents list. Change it here, once.
-export function documentHref(documentId: string): string {
-  return `/documents#doc-${documentId}`;
+// Where a source's document can be seen: its page, opened at the page the source was found on.
+export function documentHref(documentId: string, page = 0): string {
+  return page > 0 ? `/documents/${documentId}?page=${page}` : `/documents/${documentId}`;
 }
 
 export type AnswerPart = { kind: "text"; text: string } | { kind: "citation"; number: number };

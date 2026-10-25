@@ -132,8 +132,8 @@ export default function AnswerCard({ entryId, answer }: { entryId: number; answe
                     [{item.number}] {sourceLabel(item.filename, item.page)}
                   </span>
                   {item.filename && (
-                    <Link href={documentHref(item.document_id)} className="text-teal-700 underline">
-                      Open in Documents
+                    <Link href={documentHref(item.document_id, item.page)} className="text-teal-700 underline">
+                      Open document
                     </Link>
                   )}
                 </div>

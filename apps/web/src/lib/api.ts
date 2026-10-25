@@ -58,3 +58,22 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
+
+// A file (the original document) rather than JSON. Needs the login header, so it cannot be a plain link.
+export async function apiBlob(path: string): Promise<Blob> {
+  const token = getToken();
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(`${API_URL}/api/v1${path}`, { headers });
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`;
+    try {
+      const body = await res.json();
+      message = body?.error?.message || message;
+    } catch {
+      // not JSON; keep the generic message
+    }
+    throw new ApiError(res.status, message);
+  }
+  return res.blob();
+}
