@@ -8,10 +8,13 @@ fine-tuned model a fourth implementation here, not a rewrite of the assistant.
 """
 
 import logging
+import time
 from typing import Optional, Protocol
 
 import httpx
 
+from packages.observability import resilience
+from packages.observability.context import HEADER, get_request_id
 from services.api.app.core.config import settings
 
 logger = logging.getLogger("app.reasoning.providers")
@@ -26,6 +29,24 @@ class LLMProvider(Protocol):
     name: str
 
     def generate(self, messages: list[dict]) -> str: ...
+
+
+def _sleep(seconds: float) -> None:  # a function of its own so tests can skip the waiting
+    time.sleep(seconds)
+
+
+def generate_with_usage(provider, messages: list[dict]) -> tuple:
+    """(text, usage) where usage has input_tokens/output_tokens when the provider reports them.
+    A provider that only has generate() (a test stand-in, a future model) reports none."""
+    if hasattr(provider, "generate_with_usage"):
+        return provider.generate_with_usage(messages)
+    return provider.generate(messages), {}
+
+
+def _outgoing_headers() -> dict:
+    """The request id goes with every call to the model, so its log line and ours can be matched."""
+    request_id = get_request_id()
+    return {HEADER: request_id} if request_id else {}
 
 
 class OpenAIProvider:
@@ -44,11 +65,17 @@ class OpenAIProvider:
 
         self.name = name
         self.model = model
+        # The SDK retries connection errors and 429/5xx itself, with backoff: the llm policy's
+        # attempts, counted as tries (the SDK counts retries).
         self._client = OpenAI(
-            api_key=api_key, base_url=base_url, timeout=settings.llm_timeout_seconds
+            api_key=api_key, base_url=base_url, timeout=settings.llm_timeout_seconds,
+            max_retries=resilience.POLICIES["llm"].retry.attempts - 1,
         )
 
     def generate(self, messages: list[dict]) -> str:
+        return self.generate_with_usage(messages)[0]
+
+    def generate_with_usage(self, messages: list[dict]) -> tuple:
         try:
             # temperature=0: reliable schema-following, not creativity.
             # response_format=json_object: constrained decoding — the API
@@ -63,6 +90,7 @@ class OpenAIProvider:
                 messages=messages,
                 temperature=0,
                 response_format={"type": "json_object"},
+                extra_headers=_outgoing_headers(),
             )
         except Exception as exc:  # noqa: BLE001 — any SDK/network failure becomes one clear error
             raise LLMProviderError(f"{self.name} request failed: {exc}") from exc
@@ -70,7 +98,11 @@ class OpenAIProvider:
         content = response.choices[0].message.content
         if not content:
             raise LLMProviderError(f"{self.name} returned an empty response")
-        return content
+        usage = getattr(response, "usage", None)
+        return content, {
+            "input_tokens": getattr(usage, "prompt_tokens", None),
+            "output_tokens": getattr(usage, "completion_tokens", None),
+        }
 
 
 class GrokProvider(OpenAIProvider):
@@ -90,29 +122,49 @@ class OllamaProvider:
         self.model = model
 
     def generate(self, messages: list[dict]) -> str:
+        return self.generate_with_usage(messages)[0]
+
+    def _post(self, messages: list[dict]) -> httpx.Response:
+        response = httpx.post(
+            f"{self.base_url}/api/chat",
+            json={
+                "model": self.model,
+                "messages": messages,
+                "stream": False,
+                "format": "json",  # constrained decoding — see OpenAIProvider.generate
+                "options": {"temperature": 0},
+            },
+            headers=_outgoing_headers(),
+            # Fail fast when nothing is listening (so a retry can happen); a loaded model
+            # still gets the whole llm timeout to answer. A read timeout is never retried.
+            timeout=httpx.Timeout(settings.llm_timeout_seconds, connect=10.0),
+        )
+        response.raise_for_status()
+        return response
+
+    def generate_with_usage(self, messages: list[dict]) -> tuple:
         try:
-            response = httpx.post(
-                f"{self.base_url}/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": False,
-                    "format": "json",  # constrained decoding — see OpenAIProvider.generate
-                    "options": {"temperature": 0},
-                },
-                timeout=settings.llm_timeout_seconds,
+            response = resilience.call_with_retry(
+                lambda: self._post(messages),
+                resilience.POLICIES["llm"].retry,
+                is_transient=resilience.is_transient_http,
+                name="llm",
+                sleep=_sleep,
             )
-            response.raise_for_status()
         except httpx.HTTPError as exc:
             raise LLMProviderError(
                 f"ollama request failed ({exc}) — is `ollama serve` running "
                 f"and is '{self.model}' pulled (`ollama pull {self.model}`)?"
             ) from exc
 
-        content = response.json().get("message", {}).get("content")
+        body = response.json()
+        content = body.get("message", {}).get("content")
         if not content:
             raise LLMProviderError("ollama returned an empty response")
-        return content
+        return content, {
+            "input_tokens": body.get("prompt_eval_count"),
+            "output_tokens": body.get("eval_count"),
+        }
 
 
 def get_llm_provider() -> LLMProvider:

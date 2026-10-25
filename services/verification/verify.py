@@ -10,6 +10,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from packages.observability import metrics, trace
 from packages.schemas.answer import Answer
 from packages.schemas.evidence import Evidence
 from packages.schemas.verification import VerifiedAnswer
@@ -22,7 +23,9 @@ logger = logging.getLogger("app.verification")
 
 
 def verify_answer(answer: Answer, evidence: list[Evidence]) -> VerifiedAnswer:
-    verifications = [match_claim_to_evidence(claim, evidence) for claim in answer.claims]
+    with metrics.timed(metrics.VERIFICATION):
+        verifications = [match_claim_to_evidence(claim, evidence) for claim in answer.claims]
+    trace.record(claim_labels=trace.label_counts([v.label for v in verifications]))
 
     fully_verified = all(v.label == "SUPPORTED" for v in verifications) if verifications else False
 
@@ -39,7 +42,12 @@ def verify_answer(answer: Answer, evidence: list[Evidence]) -> VerifiedAnswer:
         flag_text = "; ".join(f'"{v.claim_text}" ({v.label.lower()})' for v in flagged)
         gate_note = f"Not fully verified against the cited evidence: {flag_text}."
         uncertainty = f"{uncertainty} {gate_note}" if uncertainty else gate_note
-        logger.warning("Answer verification gate flagged %d claim(s): %s", len(flagged), flag_text)
+        # Counts and labels only: a claim's text is health content, not log material.
+        logger.warning(
+            "verification_gate_flagged",
+            extra={"flagged_claims": len(flagged),
+                   "labels": trace.label_counts([v.label for v in flagged])},
+        )
 
     return VerifiedAnswer(
         answer=answer.answer,
@@ -63,12 +71,18 @@ def run_verified_pipeline(
     """
     decision = evaluate_question(question)
     intent = classify_intent(question)
+    trace.record(safety_action=decision.action, intent=intent)
     if decision.blocks_generation:
+        trace.record(status=trace.BLOCKED)
         return refusal_answer(decision, intent), []
 
     answer, context = generate_answer_with_context(db, user_id, question)
     verified = verify_answer(answer, context.evidence)
-    return guard_output(verified, decision, intent), context.evidence
+    guarded = guard_output(verified, decision, intent)
+    trace.record(safety_action=guarded.safety_action)
+    if guarded is not verified:  # the output guard replaced the answer
+        trace.record(status=trace.BLOCKED)
+    return guarded, context.evidence
 
 
 def generate_verified_answer(

@@ -354,3 +354,15 @@ def test_only_a_supported_claim_can_be_a_verified_absence():
     odd = verified([claim("No cholesterol is reported.", label="UNSUPPORTED",
                           explanation=ABSENT, cites=())])
     assert not to_system_answer(odd, [evidence(["u"])], {"u": "e"}).abstained
+
+
+def test_a_benchmark_database_built_before_a_column_was_added_is_rebuilt(engine):
+    """phi_bench is a scratch copy of the product's tables; when the product gains a column the
+    old copy must not be reused (it would fail on the first insert)."""
+    from sqlalchemy import text
+
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE documents DROP COLUMN failed_stage"))
+    rebuilt = ensure_benchmark_database(TEST_URL)
+    from sqlalchemy import inspect
+    assert "failed_stage" in {c["name"] for c in inspect(rebuilt).get_columns("documents")}

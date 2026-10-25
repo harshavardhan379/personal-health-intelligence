@@ -9,15 +9,21 @@ entry point everything else (the API route, later M12 verification) calls.
 import json
 import logging
 import re
+import time
 import uuid
 
 from sqlalchemy.orm import Session
 
+from packages.observability import metrics, trace
 from packages.schemas.answer import Answer, Claim
 from services.reasoning.context_builder import AssistantContext, build_context
-from services.reasoning.providers import LLMProviderError, get_llm_provider
+from services.reasoning.providers import LLMProviderError, generate_with_usage, get_llm_provider
 
 logger = logging.getLogger("app.reasoning.generate")
+
+# Bump when _SYSTEM_PROMPT or the evidence format changes: it is recorded with every trace,
+# so a change in behaviour can be tied to the prompt that produced it.
+PROMPT_VERSION = "answer-v1"
 
 _SYSTEM_PROMPT = """You are a personal health history assistant. You answer questions \
 about a patient's own confirmed medical records using ONLY the evidence provided below.
@@ -172,9 +178,16 @@ def generate_answer_with_context(
     check the answer against the EXACT SAME evidence it was generated from,
     not a freshly re-retrieved (and possibly different) evidence set.
     """
-    context = build_context(db, user_id, question)
+    with metrics.timed(metrics.RETRIEVAL):
+        context = build_context(db, user_id, question)
+    seen: list = []
+    for item in context.evidence:
+        seen.extend(i for i in item.event_ids if i not in seen)
+    trace.record(intent=context.intent, retrieval_event_ids=seen,
+                 evidence_count=len(context.evidence), prompt_version=PROMPT_VERSION)
 
     if not context.evidence:
+        trace.record(status=trace.NO_EVIDENCE)
         return Answer(
             answer="I don't have enough confirmed information in your records to answer that.",
             claims=[],
@@ -186,10 +199,16 @@ def generate_answer_with_context(
     messages = build_messages(context)
     provider = get_llm_provider()
 
+    started = time.perf_counter()
+    trace.record(provider=provider.name, model=getattr(provider, "model", None))
     try:
-        raw = provider.generate(messages)
+        with metrics.timed(metrics.LLM):
+            raw, usage = generate_with_usage(provider, messages)
     except LLMProviderError as exc:
-        logger.exception("LLM provider failed")
+        trace.record(status=trace.PROVIDER_ERROR,
+                     llm_ms=round((time.perf_counter() - started) * 1000))
+        # The class only: the provider's message can echo parts of what it was sent.
+        logger.error("llm_provider_failed", extra={"error_type": type(exc).__name__})
         return Answer(
             answer="The assistant is temporarily unavailable. Please try again shortly.",
             claims=[],
@@ -198,4 +217,9 @@ def generate_answer_with_context(
             intent=context.intent,
         ), context
 
+    input_tokens, output_tokens = usage.get("input_tokens"), usage.get("output_tokens")
+    trace.record(
+        llm_ms=round((time.perf_counter() - started) * 1000),
+        input_tokens=input_tokens, output_tokens=output_tokens,
+    )
     return _parse_model_output(raw, context), context

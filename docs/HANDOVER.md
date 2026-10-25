@@ -27,8 +27,9 @@ LLM calls, real bugs found and fixed through live testing, not just "it imports.
 
 - **Repo:** `harshavardhan379/personal-health-intelligence` on GitHub, branch `main`.
 - **Linear:** team `YGH`, project "Personal Health Intelligence App" — https://linear.app/harshavardhan-p/team/YGH
-- **Milestones M0 (partially), M1 through M13: Done.** M14 (Evaluation & PersonalHealthBench) is
-  IN PROGRESS: YGH-63 to YGH-70 (framework, generator, truth, questions, runner and the three baselines) are done; YGH-71 (the full system and the comparison run) is built and awaiting the final test-split run; YGH-72 (report) remains.
+- **Milestones M0 (partially), M1 through M16: Done** (M11b fine-tuning is a parallel track, not
+  started). M14's report has one open item: section 9 waits for the owner's human audit of the
+  benchmark (`audit_review.csv`). M17 (security & data lifecycle), M18 and M19 are next.
 - **Latest commit:** see `git log` (M12 landed as `2c5447f`, followed by a live-testing fix commit). Run `git log --oneline | cat` to get the real current state — this
   number is stale the moment new work lands.
 - **126 original Linear issues + 11 M11b (fine-tuning) issues added mid-project = 137 total.**
@@ -430,9 +431,9 @@ Or use `http://localhost:8000/docs` — click **Authorize**, paste the raw token
   pipeline, the AI assistant end to end, cross-user isolation) was verified **manually, live**,
   and the result documented in each Linear issue's comment — formalizing these into
   `tests/integration/` is M18 (YGH-97, YGH-98, YGH-99).
-- **No request correlation IDs, no AI call tracing, no log aggregation.** Structured JSON logging
-  exists (`app/core/logging.py`); cross-request correlation doesn't. `AITrace` table exists in
-  the schema with zero writers — reserved for M16.
+- **No log aggregation, alerting or persistent metrics.** M16 added request IDs, JSON logging, AI
+  tracing, in-process metrics and retry/timeout policies (see `docs/OBSERVABILITY.md`), but the
+  metrics are per process and reset on restart, and nothing is shipped anywhere.
 - **Evidence verification is built (M12)** but is rule-based, not an LLM: see the limitation noted in §3.
 - **Safety layer is built (M13)** but rule-based, English-only, and has no conversation memory (each
   question is classified alone). See `docs/02_SAFETY_SPEC.md` section 9. Run `pytest tests/safety`
@@ -599,10 +600,27 @@ blocks shows a fixed amber card (CLARIFY: "Could you rephrase that?") with no so
 - **Test hygiene:** the review flow was tested by inserting one clearly synthetic pending event into the
   local test account and deleting it afterwards (the data is back to 2 documents, 7 confirmed facts).
 
-### M16 — Observability & Reliability
-Structured logging is already real; this adds request IDs threaded through every log line,
-AI call tracing (the already-schema'd but unused `AITrace` table), performance metrics,
-retry/timeout policies, explicit failure-state handling per async stage.
+### M16 — Observability & Reliability (DONE: YGH-90 to 95; reference: `docs/OBSERVABILITY.md`)
+Built, tested (`test_observability.py`, `test_ai_tracing.py`, `test_providers.py`,
+`test_pipeline_failures.py`, `test_logging_hygiene.py`; mutation-checked) and verified live:
+- **Request IDs** end to end (browser -> API -> logs -> model call -> background run -> error body
+  and "Reference:" in the UI). **JSON logging** with a no-health-content rule enforced by an AST
+  test over the whole source tree.
+- **AI tracing:** one metadata-only `ai_traces` row per assistant call (model, prompt version,
+  tokens, latency, retrieved event ids, claim label counts, safety action, status, question
+  LENGTH). `ai_traces.question` was dropped (migration `0003`).
+- **Metrics:** `GET /api/v1/metrics` (upload, processing, extraction, retrieval, llm, verification,
+  and per route). Per process, resets on restart.
+- **Retry/timeout policies** in one table (`packages/observability/resilience.py`): LLM, OCR,
+  embeddings, storage, database.
+- **Pipeline failures:** stages read_file/parse/ocr/classify/extract/save, atomic save, `failed_stage`
+  + safe `processing_error`, stale-run recovery (`interrupted`), `POST /documents/{id}/reprocess`,
+  and a "Try processing again" button.
+- **Also done in the same sitting:** the benchmark scratch DB (`phi_bench`) is now rebuilt when the
+  product schema gains a column (it previously would have failed on first insert).
+- **Honest caveats:** Tesseract is not installed on this machine, so the OCR timeout is verified
+  with stand-ins only; the Postgres lock-order reasoning (rollback before marking failed) is
+  tested via session state, not by reproducing a lock wait; stale recovery assumes one API process.
 
 ### M17 — Security & Data Lifecycle
 Formal security review (auth, IDOR, file upload, injection, prompt injection, XSS/CSRF, secrets),

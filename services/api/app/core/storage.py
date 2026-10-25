@@ -11,6 +11,8 @@ import os
 import uuid
 from pathlib import Path
 
+from packages.observability.resilience import POLICIES, call_with_retry, is_transient_os
+
 ALLOWED_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 ALLOWED_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png"}
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB
@@ -20,6 +22,17 @@ STORAGE_DIR = Path(os.environ.get("STORAGE_DIR", "storage"))
 
 class UploadValidationError(ValueError):
     pass
+
+
+def _with_storage_retry(operation):
+    """A briefly locked or interrupted file operation is retried (the "storage" policy, YGH-94);
+    a missing file or a full disk is not, and surfaces at once."""
+    return call_with_retry(
+        operation,
+        POLICIES["storage"].retry,
+        is_transient=is_transient_os,
+        name="storage",
+    )
 
 
 def validate_upload(filename: str, mime_type: str, size_bytes: int) -> None:
@@ -48,7 +61,7 @@ def save_upload(user_id: uuid.UUID, filename: str, content: bytes) -> tuple[str,
     user_dir.mkdir(parents=True, exist_ok=True)
 
     target = user_dir / stored_name
-    target.write_bytes(content)
+    _with_storage_retry(lambda: target.write_bytes(content))
 
     storage_path = f"{user_id}/{stored_name}"
     return storage_path, stored_name
@@ -74,4 +87,5 @@ def resolve_upload_path(storage_path: str) -> Path:
 
 
 def read_upload(storage_path: str) -> bytes:
-    return resolve_upload_path(storage_path).read_bytes()
+    path = resolve_upload_path(storage_path)
+    return _with_storage_retry(path.read_bytes)

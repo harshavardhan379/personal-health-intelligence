@@ -7,7 +7,7 @@ Upload -> Processing -> Processed -> Review required -> Failed states).
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote
 
@@ -23,9 +23,16 @@ from fastapi import (
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from packages.schemas.db import SessionLocal, get_db
-from packages.schemas.models import Document, HealthEvent, Provenance, User
+from packages.observability import metrics
+from packages.observability.context import get_request_id
+from packages.schemas.db import get_db
+from packages.schemas.models import Document, HealthEvent, User
 from services.api.app.core.deps import get_current_user
+from services.api.app.core.pipeline import (
+    clear_partial_results,
+    recover_stale_documents,
+    run_pipeline,
+)
 from services.api.app.core.storage import (
     ALLOWED_MIME_TYPES,
     UploadValidationError,
@@ -33,8 +40,6 @@ from services.api.app.core.storage import (
     save_upload,
     validate_upload,
 )
-from services.document_processing.normalize import ProcessingError, process_document
-from services.extraction.pipeline import extract_all
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 logger = logging.getLogger("app.documents")
@@ -48,6 +53,7 @@ class DocumentOut(BaseModel):
     classification: Optional[str] = None
     classification_confidence: Optional[float] = None
     processing_error: Optional[str] = None
+    failed_stage: Optional[str] = None
     uploaded_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
@@ -81,83 +87,9 @@ def _to_out(doc: Document) -> DocumentOut:
         classification=doc.classification,
         classification_confidence=doc.classification_confidence,
         processing_error=doc.processing_error,
+        failed_stage=doc.failed_stage,
         uploaded_at=doc.uploaded_at,
     )
-
-
-def _run_pipeline(document_id: str, user_id: str, mime_type: str, storage_path: str) -> None:
-    """Runs in a background task (own DB session; the request's session is already closed)."""
-    from services.api.app.core.storage import read_upload
-
-    db = SessionLocal()
-    try:
-        doc = db.get(Document, uuid.UUID(document_id))
-        if doc is None:
-            return
-
-        doc.processing_status = "processing"
-        db.commit()
-
-        try:
-            content = read_upload(storage_path)
-            normalized = process_document(document_id, mime_type, content)
-        except ProcessingError as exc:
-            doc.processing_status = "failed"
-            doc.processing_error = str(exc)
-            db.commit()
-            logger.warning("Processing failed for document %s: %s", document_id, exc)
-            return
-
-        doc.classification = normalized.classification
-        doc.classification_confidence = normalized.classification_confidence
-
-        from packages.schemas.models import DocumentPage
-
-        for page in normalized.pages:
-            db.add(
-                DocumentPage(
-                    document_id=doc.id,
-                    page_number=page.page,
-                    text=page.text,
-                    is_ocr=page.is_ocr,
-                )
-            )
-
-        facts = extract_all(normalized.pages)
-        for fact in facts:
-            event = HealthEvent(
-                user_id=doc.user_id,
-                document_id=doc.id,
-                event_type=fact.event_type,
-                event_date=fact.event_date,
-                event_date_precision=fact.event_date_precision,
-                data=fact.data,
-                confidence=fact.confidence,
-                extraction_method="regex",
-                review_status="pending",
-            )
-            db.add(event)
-            db.flush()
-            db.add(
-                Provenance(
-                    health_event_id=event.id,
-                    document_id=doc.id,
-                    page_number=fact.source_page,
-                    quote=fact.quote,
-                )
-            )
-
-        doc.processing_status = "processed"
-        db.commit()
-    except Exception:
-        logger.exception("Unexpected failure processing document %s", document_id)
-        doc = db.get(Document, uuid.UUID(document_id))
-        if doc is not None:
-            doc.processing_status = "failed"
-            doc.processing_error = "Unexpected processing failure"
-            db.commit()
-    finally:
-        db.close()
 
 
 @router.post("", response_model=DocumentOut, status_code=201)
@@ -174,21 +106,29 @@ async def upload_document(
     except UploadValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    storage_path, _ = save_upload(current_user.id, file.filename, content)
+    with metrics.timed(metrics.UPLOAD):  # storing the file and recording the document
+        try:
+            storage_path, _ = save_upload(current_user.id, file.filename, content)
+        except OSError as exc:
+            logger.error("upload_not_stored", extra={"error_type": type(exc).__name__})
+            raise HTTPException(
+                status_code=503, detail="The file could not be stored. Please try again."
+            ) from exc
 
-    doc = Document(
-        user_id=current_user.id,
-        filename=file.filename,
-        mime_type=file.content_type,
-        storage_path=storage_path,
-        processing_status="uploaded",
-    )
-    db.add(doc)
-    db.commit()
-    db.refresh(doc)
+        doc = Document(
+            user_id=current_user.id,
+            filename=file.filename,
+            mime_type=file.content_type,
+            storage_path=storage_path,
+            processing_status="uploaded",
+            processing_started_at=datetime.now(timezone.utc),
+        )
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
 
     background_tasks.add_task(
-        _run_pipeline, str(doc.id), str(current_user.id), doc.mime_type, storage_path
+        run_pipeline, str(doc.id), doc.mime_type, storage_path, get_request_id()
     )
 
     return _to_out(doc)
@@ -199,6 +139,7 @@ def list_documents(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    recover_stale_documents(db)  # a run that died would otherwise show "processing" for ever
     docs = (
         db.query(Document)
         .filter_by(user_id=current_user.id)
@@ -222,6 +163,30 @@ def get_document_status(
     current_user: User = Depends(get_current_user),
 ):
     return _to_out(_owned_document(db, current_user, document_id))
+
+
+@router.post("/{document_id}/reprocess", response_model=DocumentOut, status_code=202)
+def reprocess_document(
+    document_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Run a failed document through the pipeline again. Owner only; nothing else can be re-run."""
+    doc = _owned_document(db, current_user, document_id)
+    if doc.processing_status != "failed":
+        raise HTTPException(status_code=409, detail="Only a failed document can be processed again")
+    clear_partial_results(db, doc)
+    doc.processing_status = "uploaded"
+    doc.processing_started_at = datetime.now(timezone.utc)
+    doc.processing_error = None
+    doc.failed_stage = None
+    db.commit()
+    db.refresh(doc)
+    background_tasks.add_task(
+        run_pipeline, str(doc.id), doc.mime_type, doc.storage_path, get_request_id()
+    )
+    return _to_out(doc)
 
 
 @router.get("/{document_id}/file")

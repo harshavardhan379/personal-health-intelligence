@@ -64,6 +64,12 @@ class Document(Base):
     classification: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     classification_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     processing_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Where processing stopped: read_file | parse | ocr | classify | extract | save | interrupted
+    failed_stage: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    # When the current attempt began (set on every run, so a re-run is not mistaken for a stale one)
+    processing_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     user: Mapped["User"] = relationship(back_populates="documents")
     pages: Mapped[list["DocumentPage"]] = relationship(
@@ -149,16 +155,35 @@ class Embedding(Base):
 
 
 class AITrace(Base):
+    """What one assistant call did (YGH-92). Metadata only: there is deliberately no column for the
+    question, the answer or the evidence text, so telemetry cannot become a second copy of health
+    data (only the question's length is kept)."""
+
     __tablename__ = "ai_traces"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    question: Mapped[str] = mapped_column(Text, nullable=False)
+    request_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     intent: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     provider: Mapped[str] = mapped_column(String(32), default="hosted")
-    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    token_usage: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # whole call
+    llm_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # the model alone
+    token_usage: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # input + output
+    input_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    retrieval_event_ids: Mapped[Optional[list]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=True
+    )
+    evidence_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    claim_labels: Mapped[Optional[dict]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=True
+    )
     verification_result: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    safety_action: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    status: Mapped[str] = mapped_column(String(24), default="ok", nullable=False)
+    question_chars: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

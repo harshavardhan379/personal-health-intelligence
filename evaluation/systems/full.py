@@ -34,7 +34,7 @@ import uuid
 from collections import Counter
 from typing import Callable, Optional
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -93,7 +93,23 @@ def ensure_benchmark_database(url: str):
     with engine.begin() as connection:
         connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(engine)
+    if _schema_drifted(engine):
+        # The product's tables gained a column since this scratch database was built. It holds
+        # nothing but regenerated benchmark users, so rebuild it (the name check above makes
+        # this unable to touch the product database).
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
     return engine
+
+
+def _schema_drifted(engine) -> bool:
+    """True if any table is missing a column the product's models now have."""
+    inspector = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        have = {column["name"] for column in inspector.get_columns(table.name)}
+        if {column.name for column in table.columns} - have:
+            return True
+    return False
 
 
 def store_patient(db, patient_id: str, mode: str, rows: list) -> tuple:
