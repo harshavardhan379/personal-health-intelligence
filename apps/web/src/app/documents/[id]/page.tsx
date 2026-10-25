@@ -149,47 +149,49 @@ function DocumentDetail() {
         </Card>
       )}
 
-      <Card
-        title="Extracted information"
-        description="What was read from this document, where it was found, and whether you have confirmed it."
-      >
-        <Async
-          state={events}
-          loadingLabel="Loading the extracted information..."
-          isEmpty={(list) => list.length === 0}
-          empty={
-            <EmptyState title="Nothing was extracted from this document">
-              {doc.data?.processing_status === "failed"
-                ? "Processing failed, so there is nothing to review."
-                : doc.data?.processing_status === "processed"
-                  ? "No facts the system recognises were found in it."
-                  : "It is still being processed; this page updates by itself."}
-            </EmptyState>
-          }
+      {doc.data && (
+        <Card
+          title="Extracted information"
+          description="What was read from this document, where it was found, and whether you have confirmed it."
         >
-          {(list) => {
-            const pending = list.filter((e) => e.review_status === "pending").length;
-            return (
-              <>
-                {pending > 0 && (
-                  <p className="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-900">
-                    {pending} {pending === 1 ? "fact is" : "facts are"} waiting for your review and not
-                    on your timeline yet.{" "}
-                    <Link href="/review" className="underline">
-                      Review now
-                    </Link>
-                  </p>
-                )}
-                <ul className="mt-2 divide-y divide-slate-200">
-                  {list.map((event) => (
-                    <EventRow key={event.id} event={event} onShowPage={setPage} />
-                  ))}
-                </ul>
-              </>
-            );
-          }}
-        </Async>
-      </Card>
+          <Async
+            state={events}
+            loadingLabel="Loading the extracted information..."
+            isEmpty={(list) => list.length === 0}
+            empty={
+              <EmptyState title="Nothing was extracted from this document">
+                {doc.data?.processing_status === "failed"
+                  ? "Processing failed, so there is nothing to review."
+                  : doc.data?.processing_status === "processed"
+                    ? "No facts the system recognises were found in it."
+                    : "It is still being processed; this page updates by itself."}
+              </EmptyState>
+            }
+          >
+            {(list) => {
+              const pending = list.filter((e) => e.review_status === "pending").length;
+              return (
+                <>
+                  {pending > 0 && (
+                    <p className="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-900">
+                      {pending} {pending === 1 ? "fact is" : "facts are"} waiting for your review and not
+                      on your timeline yet.{" "}
+                      <Link href="/review" className="underline">
+                        Review now
+                      </Link>
+                    </p>
+                  )}
+                  <ul className="mt-2 divide-y divide-slate-200">
+                    {list.map((event) => (
+                      <EventRow key={event.id} event={event} onShowPage={setPage} />
+                    ))}
+                  </ul>
+                </>
+              );
+            }}
+          </Async>
+        </Card>
+      )}
     </div>
   );
 }

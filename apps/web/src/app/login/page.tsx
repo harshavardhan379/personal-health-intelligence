@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { ApiError } from "@/lib/api";
+import { describeFailure } from "@/lib/errors";
 
 export default function LoginPage() {
   const { login, register } = useAuth();
@@ -26,7 +26,7 @@ export default function LoginPage() {
       }
       router.push("/documents");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong");
+      setError(describeFailure(err, "Something went wrong. Please try again.").message);
     } finally {
       setSubmitting(false);
     }
@@ -38,24 +38,38 @@ export default function LoginPage() {
       <p className="mt-1 text-sm text-slate-500">Synthetic data only. Not medical advice.</p>
 
       <form onSubmit={onSubmit} className="mt-4 flex flex-col gap-3">
+        <label htmlFor="email" className="sr-only">
+          Email
+        </label>
         <input
+          id="email"
           type="email"
           required
+          autoComplete="email"
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="rounded border border-slate-300 px-3 py-2 text-sm"
         />
+        <label htmlFor="password" className="sr-only">
+          Password
+        </label>
         <input
+          id="password"
           type="password"
           required
           minLength={8}
+          autoComplete={mode === "login" ? "current-password" : "new-password"}
           placeholder="Password (min 8 characters)"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="rounded border border-slate-300 px-3 py-2 text-sm"
         />
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && (
+          <p role="alert" className="text-sm text-red-600">
+            {error}
+          </p>
+        )}
         <button
           type="submit"
           disabled={submitting}
@@ -67,7 +81,10 @@ export default function LoginPage() {
 
       <button
         type="button"
-        onClick={() => setMode(mode === "login" ? "register" : "login")}
+        onClick={() => {
+          setMode(mode === "login" ? "register" : "login");
+          setError(null);
+        }}
         className="mt-3 text-sm text-teal-700 hover:underline"
       >
         {mode === "login" ? "Need an account? Register" : "Have an account? Log in"}

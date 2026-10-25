@@ -520,9 +520,8 @@ exist yet**, loading/error/empty states everywhere.
 how each statement was checked (the verifier's label and explanation), the uncertainty note, and a
 numbered Sources list (filename, page, the source quote, and a link). A question the safety layer
 blocks shows a fixed amber card (CLARIFY: "Could you rephrase that?") with no sources. Loading, error
-(with Try again), expired-session and empty-input states are handled. Remaining in M15: YGH-116
-documents page, YGH-118 document detail page, YGH-120 timeline page, YGH-89 dashboard, YGH-124
-settings, YGH-126 loading/error/empty states elsewhere.
+(with Try again), expired-session and empty-input states are handled. The rest of M15 followed
+(see "M15 completed" below).
 - **API change (additive):** `POST /assistant/ask` now also returns `evidence`, the numbered sources
   the answer was generated from (`number`, `text`, `document_id`, `filename`, `page`, `event_ids`,
   `source`). It is empty whenever the safety layer blocked or replaced the answer. Filenames are
@@ -530,8 +529,9 @@ settings, YGH-126 loading/error/empty states elsewhere.
   `generate_verified_answer` behaves exactly as before (it wraps the new `run_verified_pipeline`), so
   the benchmark's `full` system and its parity test are untouched and the benchmark report still
   describes commit `fe63f2f`.
-- **Source links** go to `/documents#doc-<id>` for now (there is no document page). They are built in
-  one function, `documentHref` in `apps/web/src/lib/assistant-format.ts`: change it when YGH-118 lands.
+- **Source links** now go to the document page, opened at the page the fact came from
+  (`/documents/<id>?page=N`), built in one function, `documentHref` in
+  `apps/web/src/lib/assistant-format.ts`.
 - **Frontend tests:** `cd apps/web && npm test` runs Node's built-in runner (Node 22+, no new
   dependency) over `tests/*.test.mjs` for the pure logic (citation splitting, what counts as blocked,
   the document link). There is no component-test framework yet.
@@ -552,6 +552,42 @@ settings, YGH-126 loading/error/empty states elsewhere.
   rephrase that?" card, because the product's classifier does not recognise it (docs/07_BENCHMARK_REPORT.md).
 - **Known:** a server 500 reaches the browser as a failed fetch (FastAPI's 500 responses carry no CORS
   headers), so the page cannot tell it from being offline and says so.
+
+**M15 completed (YGH-116, 118, 120, 89, 124, 126; all verified in a browser against the live stack).**
+- **Pages:** `/` dashboard (summary tiles, ask-the-assistant box that hands the question to
+  `/assistant?ask=`, recent events, a timeline-preview strip with one lane per event type, a sparkline
+  per lab, recent documents); `/documents` (type, status, upload date, links); **`/documents/[id]`**
+  (new: the original file shown in the page, everything extracted from it with review status,
+  confidence and provenance, "Show page N"); `/timeline` (month groups, type filters with counts,
+  newest/oldest, dates at their true precision, a link from every event to its document page, a notice
+  when facts await review); `/review` (readable facts, not JSON); `/settings`; `app/error.tsx`,
+  `not-found.tsx`, `loading.tsx`.
+- **Backend (additive, 14 tests, mutation-checked):** documents gain `uploaded_at`;
+  `GET /documents/{id}/file` serves the original (owner only; inline only for allowed types; a stored
+  path that resolves outside the storage folder is refused; `nosniff`, `no-store`);
+  `GET /documents/{id}/events`; `GET /account` (counts by review status, whether the model is local).
+- **Shared frontend code:** `src/lib/format.ts` (event text, dates at their precision, trends,
+  sparkline geometry), `src/lib/errors.ts`, `src/lib/useApi.ts` (`useApi`, `useBlobUrl`),
+  `src/components/states.tsx` (`Card`, `LoadingState`, `ErrorState`, `EmptyState`, `Async`). Use
+  `Async` so a page cannot forget loading, failure or empty. 29 frontend tests (`npm test`).
+- **A bug fixed that was older than M15:** `lib/auth.tsx` cleared the saved login on ANY failure of the
+  session check, so a backend restart or a network blip silently logged everyone out. Now only a 401
+  clears it; otherwise `RequireAuth` shows "could not be reached" with Try again and keeps the login.
+- **Settings: data deletion is NOT built.** The ticket asked for it, but deletion is M17 (YGH-119 data
+  deletion, YGH-121 account deletion): destructive, and needs files, embeddings and logs handled. The
+  settings page says so plainly, with disabled buttons, and shows exactly what is stored. Wire the
+  buttons when those tickets land. Privacy is informational (is the model local or an outside
+  service), not a set of controls.
+- **Product defects found by using it (NOT fixed; they affect what the benchmark measured, so a fix
+  should be versioned):** (1) "What is my latest HbA1c?" is routed to the TEMPORAL path, which returns
+  the whole history oldest-first; the small model answered with the first item, the January 7.2%,
+  while the April 6.5% sat at position 7 of the evidence. (2) The verifier marked that wrong claim
+  "Supported" because 7.2% is in the cited evidence: it cannot check "latest / most recent". (3) The
+  model's uncertainty text "None noted" is shown as an uncertainty box, because `_clean_uncertainty`
+  only drops null / none / n/a. (4) The "couldn't find" absence-check gap above. All four are the
+  temporal/uncertainty weaknesses the benchmark measured.
+- **Test hygiene:** the review flow was tested by inserting one clearly synthetic pending event into the
+  local test account and deleting it afterwards (the data is back to 2 documents, 7 confirmed facts).
 
 ### M16 — Observability & Reliability
 Structured logging is already real; this adds request IDs threaded through every log line,
