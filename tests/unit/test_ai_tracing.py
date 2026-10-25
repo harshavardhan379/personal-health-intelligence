@@ -22,6 +22,7 @@ from services.api.main import app
 from services.reasoning.context_builder import AssistantContext
 from services.reasoning.generate import PROMPT_VERSION
 from services.reasoning.providers import LLMProviderError
+from tests.helpers import app_log_text
 
 QUESTION = "What is my latest HbA1c result, please?"
 ANSWER_TEXT = "Your HbA1c was 7.2 percent."
@@ -185,8 +186,7 @@ def test_flagged_claims_are_counted_by_label_and_never_logged_in_words(world, ca
     assert row.verification_result == "flagged"
     flagged = next(r for r in caplog.records if r.message == "verification_gate_flagged")
     assert flagged.flagged_claims == 2
-    assert "9.9" not in " ".join(r.getMessage() + str(r.__dict__) for r in caplog.records
-                                 if r.name == "app.verification")
+    assert "9.9" not in app_log_text([r for r in caplog.records if r.name == "app.verification"])
     assert "controlled" not in " ".join(str(r.__dict__) for r in caplog.records)
 
 
@@ -251,5 +251,5 @@ def test_the_prompt_version_is_tied_to_the_prompt_text():
 
     from services.reasoning.generate import _SYSTEM_PROMPT
 
-    assert hashlib.sha256(_SYSTEM_PROMPT.encode("utf-8")).hexdigest()[:16] == "581f49be873baa5e"
-    assert PROMPT_VERSION == "answer-v1"
+    assert hashlib.sha256(_SYSTEM_PROMPT.encode("utf-8")).hexdigest()[:16] == "a069d3783a97c047"
+    assert PROMPT_VERSION == "answer-v2"

@@ -27,6 +27,7 @@ from services.api.app.core import pipeline, storage
 from services.api.app.core.deps import get_current_user
 from services.api.main import app
 from services.document_processing import normalize, ocr
+from tests.helpers import make_pdf
 
 SECRET = "HbA1c 9.9 patient Jane Doe"
 GOOD_TEXT = "HbA1c: 7.2 % (ref 4.0-5.6) 2026-01-10"
@@ -507,14 +508,14 @@ def test_the_failed_stage_is_in_the_document_the_page_reads(world):
 
 # --- upload ---------------------------------------------------------------------------------
 def upload(w):
-    return w.client.post("/api/v1/documents", files={"file": ("lab.pdf", b"%PDF-1.4 x",
+    return w.client.post("/api/v1/documents", files={"file": ("lab.pdf", make_pdf(),
                                                               "application/pdf")})
 
 
 def test_an_upload_is_timed_and_hands_its_request_id_to_the_background_run(world, background):
     response = world.client.post(
         "/api/v1/documents", headers={"X-Request-ID": "req-up-1"},
-        files={"file": ("lab.pdf", b"%PDF-1.4 x", "application/pdf")})
+        files={"file": ("lab.pdf", make_pdf(), "application/pdf")})
     assert response.status_code == 201
     assert metrics.registry.snapshot()["upload"]["count"] == 1
     assert background[0][3] == "req-up-1"

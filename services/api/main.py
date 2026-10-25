@@ -29,6 +29,7 @@ from services.api.app.core.errors import (
 )
 from services.api.app.core.logging import configure_logging
 from services.api.app.core.pipeline import recover_stale_documents
+from services.api.app.core.security_headers import SecurityHeadersMiddleware
 
 configure_logging(settings.log_level)
 
@@ -37,8 +38,13 @@ logger = logging.getLogger("app")
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """On start, documents a previous run left `processing` are marked failed (YGH-95). An
-    unreachable database must not stop the API from starting: health checks still need to answer."""
+    """Production refuses to start on unsafe settings (YGH-104). On start, documents a previous
+    run left `processing` are marked failed (YGH-95); an unreachable database must not stop the
+    API from starting: health checks still need to answer."""
+    if settings.is_production:
+        problems = settings.production_problems()
+        if problems:
+            raise RuntimeError("Unsafe production settings: " + "; ".join(problems))
     try:
         with SessionLocal() as db:
             recover_stale_documents(db)
@@ -47,7 +53,11 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title=settings.app_name, lifespan=lifespan)
+# No interactive API docs in production: the schema is a map for an attacker and the page offers
+# a login form. Everywhere else /docs stays for development.
+_docs = {} if not settings.is_production else {"docs_url": None, "redoc_url": None,
+                                                "openapi_url": None}
+app = FastAPI(title=settings.app_name, lifespan=lifespan, **_docs)
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,6 +66,7 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=[HEADER],  # so the web app can show the request id of a failed call
 )
+app.add_middleware(SecurityHeadersMiddleware, production=settings.is_production)
 # Added last so it is outermost: it sees every request, including CORS preflights and the errors.
 app.add_middleware(RequestContextMiddleware)
 

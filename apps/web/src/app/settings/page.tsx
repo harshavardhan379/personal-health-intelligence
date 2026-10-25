@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { DeleteMyAccount, DeleteMyData, Deleted } from "@/components/DeleteControls";
 import RequireAuth from "@/components/RequireAuth";
 import { Async, Card } from "@/components/states";
 import { useAuth } from "@/lib/auth";
@@ -31,6 +33,7 @@ function SettingsInner() {
   const { logout } = useAuth();
   const router = useRouter();
   const account = useApi<Account>("/account", { fallback: "Could not load your account" });
+  const [deleted, setDeleted] = useState<Deleted | null>(null);
 
   return (
     <div className="space-y-6">
@@ -101,30 +104,43 @@ function SettingsInner() {
 
             <Card
               title="Delete your data"
-              description="Remove your documents, extracted facts and account."
+              description="Permanent. Each button asks for your password first."
             >
-              <p className="mt-3 rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-700">
-                <strong>Not available yet.</strong> Deleting individual documents (YGH-119) and
-                deleting your account (YGH-121) are planned and not built, so there is deliberately no
-                delete button here. Until they exist, upload synthetic data only.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled
-                  aria-disabled="true"
-                  className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-400"
-                >
-                  Delete my documents (not available yet)
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  aria-disabled="true"
-                  className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-400"
-                >
-                  Delete my account (not available yet)
-                </button>
+              {deleted && (
+                <p role="status" className="mt-3 rounded-md bg-green-50 p-3 text-sm text-green-900">
+                  Deleted {deleted.documents} document(s) and {deleted.events} extracted fact(s).
+                  {deleted.files_failed > 0 &&
+                    " Some stored files could not be removed; they are private and no longer linked to anything."}
+                </p>
+              )}
+              <div className="mt-3 space-y-3">
+                <div>
+                  <p className="text-sm text-slate-600">
+                    Single documents can be deleted from their own page. This removes everything at
+                    once and keeps your account.
+                  </p>
+                  <div className="mt-2">
+                    <DeleteMyData
+                      onDeleted={(result) => {
+                        setDeleted(result);
+                        account.reload();
+                      }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm text-slate-600">
+                    Removes your account and everything stored for it, then logs you out.
+                  </p>
+                  <div className="mt-2">
+                    <DeleteMyAccount
+                      onDeleted={() => {
+                        logout();
+                        router.push("/login");
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
             </Card>
           </>

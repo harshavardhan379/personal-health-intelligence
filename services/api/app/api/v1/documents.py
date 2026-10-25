@@ -27,6 +27,7 @@ from packages.observability import metrics
 from packages.observability.context import get_request_id
 from packages.schemas.db import get_db
 from packages.schemas.models import Document, HealthEvent, User
+from services.api.app.core.deletion import delete_document
 from services.api.app.core.deps import get_current_user
 from services.api.app.core.pipeline import (
     clear_partial_results,
@@ -35,9 +36,11 @@ from services.api.app.core.pipeline import (
 )
 from services.api.app.core.storage import (
     ALLOWED_MIME_TYPES,
+    MAX_FILE_SIZE_BYTES,
     UploadValidationError,
     read_upload,
     save_upload,
+    validate_content,
     validate_upload,
 )
 
@@ -92,6 +95,19 @@ def _to_out(doc: Document) -> DocumentOut:
     )
 
 
+async def _read_bounded(file: UploadFile) -> bytes:
+    """The upload's bytes, giving up as soon as it is over the size limit rather than holding
+    an arbitrarily large body in memory first."""
+    chunks, total = [], 0
+    while chunk := await file.read(1024 * 1024):
+        total += len(chunk)
+        if total > MAX_FILE_SIZE_BYTES:
+            raise UploadValidationError(
+                f"File too large: more than {MAX_FILE_SIZE_BYTES} bytes")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @router.post("", response_model=DocumentOut, status_code=201)
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -99,10 +115,10 @@ async def upload_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    content = await file.read()
-
     try:
+        content = await _read_bounded(file)
         validate_upload(file.filename, file.content_type, len(content))
+        validate_content(file.content_type, content)
     except UploadValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -187,6 +203,18 @@ def reprocess_document(
         run_pipeline, str(doc.id), doc.mime_type, doc.storage_path, get_request_id()
     )
     return _to_out(doc)
+
+
+@router.delete("/{document_id}", status_code=204)
+def delete_document_endpoint(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete one document with everything derived from it: pages, extracted facts, their
+    sources, their embeddings and the original file. Owner only; permanent."""
+    delete_document(db, _owned_document(db, current_user, document_id))
+    return Response(status_code=204)
 
 
 @router.get("/{document_id}/file")

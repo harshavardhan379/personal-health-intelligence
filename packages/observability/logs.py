@@ -8,12 +8,16 @@ the source for it:
     data, prompt, ...) are replaced with "[redacted]";
   * a message longer than a sentence or two (a dump of something) is cut.
 
+Exception messages are never printed (SafeJsonFormatter), nor are request URLs with their query
+strings (the uvicorn access log is disabled).
+
 Free text interpolated into a message cannot be recognised, so the rule for code is: log ids,
 counts, durations, statuses and the error CLASS, never the content or the exception text of
 something that handled content (tests/unit/test_logging_hygiene.py checks the source for it).
 """
 
 import logging
+import traceback
 
 from packages.observability.context import get_request_id
 
@@ -50,10 +54,36 @@ class RedactionFilter(logging.Filter):
         return True
 
 
+def safe_traceback(exc_info) -> str:
+    """A traceback with every exception's CLASS but never its message.
+
+    The stock formatter prints `ValueError: <message>`, and a message can quote what was being
+    handled: a validation error carries the whole request body (a password, a health record), a
+    parser error carries a fragment of the document. The frames (file, line, function) are what
+    a developer needs and hold no values, so they stay. Chained causes are kept the same way."""
+    chain, seen = [], set()
+    exc = exc_info[1]
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        chain.append(exc)
+        exc = exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)
+    parts = []
+    for exc in reversed(chain):  # oldest cause first, as the standard library prints it
+        frames = "".join(traceback.format_list(traceback.extract_tb(exc.__traceback__)))
+        parts.append(f"Traceback (most recent call last):\n{frames}{type(exc).__qualname__}")
+    joiner = "\n\nThe above exception was the direct cause of the following exception:\n\n"
+    return joiner.join(parts)
+
+
+class SafeJsonFormatter(JsonFormatter):
+    def formatException(self, ei):  # noqa: N802 - the logging.Formatter hook name
+        return safe_traceback(ei)
+
+
 def build_handler(stream=None) -> logging.Handler:
     """The JSON handler with both filters (stderr unless a stream is given)."""
     handler = logging.StreamHandler(stream)
-    handler.setFormatter(JsonFormatter(
+    handler.setFormatter(SafeJsonFormatter(
         "%(asctime)s %(levelname)s %(name)s %(request_id)s %(message)s",
         rename_fields={"asctime": "timestamp", "levelname": "level", "name": "logger"},
     ))
@@ -67,3 +97,8 @@ def configure_logging(level: str) -> None:
     root = logging.getLogger()
     root.handlers = [build_handler()]
     root.setLevel(level)
+    # uvicorn's access log prints every URL with its query string, and a search puts the user's
+    # own words there (/search?q=...). The app's own `request_finished` line logs the route
+    # template instead, so the access log is switched off whatever way the server was started.
+    access = logging.getLogger("uvicorn.access")
+    access.handlers, access.propagate, access.disabled = [], False, True

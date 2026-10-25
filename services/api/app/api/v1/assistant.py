@@ -18,6 +18,7 @@ from packages.schemas.db import get_db
 from packages.schemas.models import User
 from packages.schemas.verification import VerifiedAnswer
 from services.api.app.core.deps import get_current_user
+from services.api.app.core.ratelimit import ask_calls, count_and_refuse_if_limited
 from services.api.app.core.tracing import write_ai_trace
 from services.safety.policy import BLOCKING_ACTIONS
 from services.verification.sources import describe_sources
@@ -36,6 +37,7 @@ def ask(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    count_and_refuse_if_limited(ask_calls, str(current_user.id))  # each call is a model run
     started = time.perf_counter()
     trace.start_trace(question_chars=len(payload.question))
     try:

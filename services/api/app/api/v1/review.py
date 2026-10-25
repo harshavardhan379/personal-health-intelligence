@@ -1,11 +1,12 @@
 """Human review: confirm/edit/reject extracted facts (YGH-36, YGH-37 API, YGH-38, YGH-39)."""
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from packages.schemas.db import get_db
@@ -33,8 +34,26 @@ class EventOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+MAX_EDIT_KEYS = 30
+MAX_EDIT_JSON_BYTES = 8 * 1024
+
+
 class EditRequest(BaseModel):
     data: dict
+
+    @field_validator("data")
+    @classmethod
+    def small_enough(cls, value: dict) -> dict:
+        """An edit replaces a fact's fields; a fact is a few short values, never a document."""
+        if len(value) > MAX_EDIT_KEYS:
+            raise ValueError(f"too many fields (max {MAX_EDIT_KEYS})")
+        try:
+            size = len(json.dumps(value).encode("utf-8"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("must be plain JSON values") from exc
+        if size > MAX_EDIT_JSON_BYTES:
+            raise ValueError(f"too large (max {MAX_EDIT_JSON_BYTES} bytes)")
+        return value
 
 
 def _to_out(event: HealthEvent) -> EventOut:

@@ -1,21 +1,24 @@
 """Password hashing and JWT issuance/verification (YGH-9, YGH-11, YGH-13)."""
 
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import bcrypt
 import jwt
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-only-secret-change-me")
+from services.api.app.core.config import settings
+
+# The secret and the lifetime come from settings (JWT_SECRET, JWT_EXPIRE_MINUTES); production
+# refuses to start on the development default (Settings.production_problems).
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24h; fine for an MVP, revisit for production
 
 # Calling bcrypt directly rather than through passlib: passlib 1.7.4 (its last
 # release, unmaintained since 2020) is incompatible with bcrypt>=4.1's API and
 # raises on its own internal self-test, so it was never a pinning problem to
 # work around — the dependency itself was the bug.
 _BCRYPT_MAX_BYTES = 72  # bcrypt silently ignores input past this; enforce it explicitly
+MAX_PASSWORD_BYTES = _BCRYPT_MAX_BYTES
+MIN_PASSWORD_CHARS = 8
 
 
 def hash_password(password: str) -> str:
@@ -30,15 +33,15 @@ def verify_password(password: str, hashed: str) -> bool:
 
 def create_access_token(subject: str) -> str:
     """`subject` is the user id as a string."""
-    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
     payload = {"sub": subject, "exp": expire}
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGORITHM)
 
 
 def decode_access_token(token: str) -> Optional[str]:
     """Returns the user id string, or None if the token is invalid/expired."""
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[JWT_ALGORITHM])
     except jwt.PyJWTError:
         return None
     return payload.get("sub")

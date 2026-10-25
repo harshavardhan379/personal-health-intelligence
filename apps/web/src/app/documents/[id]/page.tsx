@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { DeleteDocument } from "@/components/DeleteControls";
 import FailedDocument from "@/components/FailedDocument";
 import RequireAuth from "@/components/RequireAuth";
 import { Async, Badge, Card, EmptyState, ErrorState, LoadingState } from "@/components/states";
@@ -103,6 +104,7 @@ function EventRow({ event, onShowPage }: { event: DocumentEvent; onShowPage: (pa
 function DocumentDetail() {
   const { id } = useParams<{ id: string }>();
   const search = useSearchParams();
+  const router = useRouter();
   const requested = Number(search.get("page"));
   const [page, setPage] = useState(Number.isInteger(requested) && requested > 0 ? requested : 0);
 
@@ -147,6 +149,7 @@ function DocumentDetail() {
                   }}
                 />
               )}
+              <DeleteDocument id={d.id} onDeleted={() => router.push("/documents")} />
             </>
           )}
         </Async>

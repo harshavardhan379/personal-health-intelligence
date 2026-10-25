@@ -7,6 +7,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from packages.observability.context import HEADER, get_request_id
 from services.api.app.core.config import settings
+from services.api.app.core.security_headers import security_headers
 
 logger = logging.getLogger("app.errors")
 
@@ -23,18 +24,25 @@ def _error_body(request: Request, code: int, message: str, **extra) -> dict:
 
 
 async def http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    # exc.headers carries what the status needs: Retry-After on a 429, WWW-Authenticate on a 401.
     return JSONResponse(
         status_code=exc.status_code,
         content=_error_body(request, exc.status_code, exc.detail),
+        headers=getattr(exc, "headers", None),
     )
 
 
 async def validation_error_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
+    # Only where and what is wrong. FastAPI's own errors also carry `input` (the value sent, which
+    # can be a password or a health record, and a body that is not JSON at all) and `ctx`; echoing
+    # them leaks the content and, for bytes, cannot even be serialised (that was a 500).
+    details = [{"loc": list(err["loc"]), "msg": err["msg"], "type": err["type"]}
+               for err in exc.errors()]
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content=_error_body(request, 422, "Invalid request", details=exc.errors()),
+        content=_error_body(request, 422, "Invalid request", details=details),
     )
 
 
@@ -46,7 +54,8 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
                "error_type": type(exc).__name__},
         exc_info=True,
     )
-    headers = {HEADER: _request_id(request)}
+    # This handler also runs outside the security-headers middleware.
+    headers = {**security_headers(settings.is_production), HEADER: _request_id(request)}
     # This handler runs outside the CORS middleware, so without these a browser would hide the
     # 500 and the page could only say "the server could not be reached".
     origin = request.headers.get("origin")
